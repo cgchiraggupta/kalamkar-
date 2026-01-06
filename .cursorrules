@@ -1,0 +1,362 @@
+# AI Code Generation Security Guidelines
+
+## Core Principle
+**UNDERSTAND THE WHOLE PROBLEM BEFORE CODING**
+
+Never provide patch solutions or quick fixes. Always:
+1. Understand the complete problem domain
+2. Identify root causes and systemic issues
+3. Design comprehensive solutions that address core problems
+4. Consider production implications, not just localhost behavior
+
+---
+
+## Critical Security Vulnerabilities to Prevent
+
+### 1. Rate Limiting & DDoS Protection
+
+**Problem:** Applications without rate limiting are vulnerable to abuse and can crash under load from malicious actors sending bulk requests.
+
+**Requirements:**
+- Implement rate limiting on ALL public endpoints
+- Use multiple layers: IP-based, user-based, and endpoint-specific limits
+- Consider distributed rate limiting for scaled applications (Redis-based)
+- Set appropriate limits based on endpoint purpose:
+  - Authentication endpoints: 5-10 requests per minute
+  - API endpoints: 100-1000 requests per hour (adjust by use case)
+  - File upload endpoints: Stricter limits with size validation
+- Implement exponential backoff for repeated violations
+- Return proper HTTP 429 (Too Many Requests) responses
+- Log rate limit violations for monitoring
+
+**Example Strategy:**
+```
+- Use middleware/decorators for rate limiting
+- Store rate limit state in Redis for distributed systems
+- Implement sliding window or token bucket algorithms
+- Add rate limit headers in responses (X-RateLimit-*)
+```
+
+---
+
+### 2. API Key Security
+
+**Problem:** Exposing API keys in client-side code allows anyone to steal and abuse them, leading to unauthorized access and cost overruns.
+
+**Requirements:**
+- NEVER embed API keys, secrets, or credentials in client-side code
+- NEVER commit secrets to version control (use .gitignore)
+- Always use environment variables for sensitive data
+- Implement a backend proxy for third-party API calls
+- Use different keys for development, staging, and production
+- Rotate API keys regularly
+- Implement key-based rate limiting and monitoring
+- Use secret management services (AWS Secrets Manager, HashiCorp Vault, etc.)
+
+**Architecture Pattern:**
+```
+Client → Your Backend API → Third-party API (with key)
+Never: Client → Third-party API (with exposed key)
+```
+
+---
+
+### 3. Authentication & Authorization
+
+**Problem:** Missing or weak authentication on internal endpoints exposes sensitive operations to unauthorized access.
+
+**Requirements:**
+- Authenticate ALL endpoints except explicitly public ones
+- Implement proper authorization checks (not just authentication)
+- Use principle of least privilege for permissions
+- Validate user permissions at the business logic layer, not just routes
+- Implement role-based access control (RBAC) or attribute-based access control (ABAC)
+- Use JWT or session-based auth with secure practices:
+  - Short-lived access tokens (15-60 minutes)
+  - Long-lived refresh tokens (7-30 days) stored securely
+  - Implement token expiration and refresh mechanisms
+  - Validate token signature and claims on every request
+- Never trust client-side permission checks alone
+- Log all authentication failures
+
+**Token Management:**
+- Access tokens MUST expire
+- Refresh tokens MUST have expiration
+- Implement token revocation mechanisms
+- Store refresh tokens securely (httpOnly cookies or secure storage)
+- Blacklist compromised tokens
+
+---
+
+### 4. CORS Configuration
+
+**Problem:** Overly permissive CORS policies allow malicious websites to make requests on behalf of users.
+
+**Requirements:**
+- NEVER use `Access-Control-Allow-Origin: *` in production
+- Whitelist specific, trusted domains only
+- Configure CORS based on environment:
+  - Development: localhost origins
+  - Production: only your actual domains
+- Properly configure allowed methods (GET, POST, etc.)
+- Set appropriate allowed headers
+- Use credentials carefully (`Access-Control-Allow-Credentials`)
+- Validate Origin header on the server side
+- Consider same-site cookies for additional protection
+
+**Example:**
+```
+Allowed Origins: ['https://yourdomain.com', 'https://app.yourdomain.com']
+Allowed Methods: ['GET', 'POST', 'PUT', 'DELETE']
+Allowed Headers: ['Content-Type', 'Authorization']
+```
+
+---
+
+### 5. Performance & Scalability
+
+**Problem:** Code that works for 10 users crashes with more users due to inefficient algorithms, lack of pagination, or resource exhaustion.
+
+**Requirements:**
+- Design for scale from the start
+- Implement pagination for all list endpoints (default: 20-50 items)
+- Use database indexing on frequently queried fields
+- Implement query optimization (avoid N+1 queries)
+- Add caching layers where appropriate (Redis, CDN)
+- Use connection pooling for databases
+- Implement request timeouts to prevent hanging connections
+- Use async/non-blocking I/O where possible
+- Load test endpoints before production deployment
+- Monitor resource usage (CPU, memory, database connections)
+- Implement circuit breakers for external service calls
+- Use background jobs for heavy processing tasks
+
+**Critical Checks:**
+- Can this handle 1000 concurrent users?
+- Does this endpoint fetch unbounded data?
+- Are database queries optimized with proper indexes?
+- Is there a potential for memory leaks?
+
+---
+
+### 6. Environment Configuration
+
+**Problem:** Code works on localhost but fails in production due to hardcoded values, missing environment-specific configurations, or different runtime conditions.
+
+**Requirements:**
+- Use environment variables for ALL environment-specific config
+- Never hardcode:
+  - URLs and endpoints
+  - Database connection strings
+  - API keys and secrets
+  - Port numbers
+  - File paths
+- Create separate config files for each environment
+- Document all required environment variables
+- Validate environment variables at startup
+- Use sensible defaults only for non-sensitive configs
+- Test in staging environment that mirrors production
+- Consider differences in:
+  - File system paths
+  - Network configurations
+  - Available resources (memory, CPU)
+  - Third-party service endpoints
+
+**Startup Checklist:**
+```
+1. Validate all required env vars are present
+2. Fail fast if critical config is missing
+3. Log configuration (excluding secrets) for debugging
+4. Verify external service connectivity
+```
+
+---
+
+### 7. Dependency Security
+
+**Problem:** Typosquatting and malicious packages can inject backdoors into applications.
+
+**Requirements:**
+- Verify package names carefully before installation
+- Check package popularity, maintenance status, and reputation
+- Review package dependencies (use tools like `npm audit`, `pip-audit`)
+- Pin exact versions in production (`package-lock.json`, `requirements.txt`)
+- Regularly update dependencies for security patches
+- Use dependency scanning tools in CI/CD pipeline
+- Consider using private package registries for internal packages
+- Enable two-factor authentication on package manager accounts
+- Review package permissions and scope
+- Monitor for security advisories
+
+**Installation Process:**
+```
+1. Search official registry (npm, PyPI, etc.)
+2. Verify package name spelling
+3. Check download stats and last update
+4. Review GitHub repository if available
+5. Scan for known vulnerabilities
+6. Install and lock version
+```
+
+---
+
+### 8. SQL Injection Prevention
+
+**Problem:** AI-generated code often treats all user input as safe, leading to SQL injection vulnerabilities.
+
+**Requirements:**
+- NEVER concatenate user input directly into SQL queries
+- ALWAYS use parameterized queries or prepared statements
+- Use ORM query builders when possible (but understand the raw SQL)
+- Validate and sanitize ALL user input
+- Implement input type checking (string, number, email, etc.)
+- Use allowlists for acceptable values when possible
+- Escape special characters in dynamic query components
+- Apply principle of least privilege to database users
+- Never use root/admin database accounts for application queries
+- Log and monitor suspicious query patterns
+
+**Example (Vulnerable vs Safe):**
+```
+❌ BAD:  query = f"SELECT * FROM users WHERE id = {user_id}"
+✅ GOOD: query = "SELECT * FROM users WHERE id = ?" with params=[user_id]
+```
+
+**Validation Layers:**
+```
+1. Client-side: User experience (not security)
+2. API Gateway: Format and type validation
+3. Business Logic: Semantic validation
+4. Database Layer: Parameterized queries
+```
+
+---
+
+### 9. Business Logic Validation
+
+**Problem:** Missing business logic checks allow users to perform unauthorized operations even with valid authentication.
+
+**Requirements:**
+- Validate business rules at the service/business logic layer
+- Don't rely solely on client-side or UI restrictions
+- Check user permissions for specific resources (not just authentication)
+- Validate state transitions (e.g., can't cancel a delivered order)
+- Implement idempotency for critical operations
+- Verify ownership before allowing modifications
+- Check quantity limits, balance requirements, etc.
+- Validate temporal constraints (valid dates, business hours)
+- Implement audit logging for sensitive operations
+- Use database constraints as last line of defense
+
+**Example Checks:**
+```
+- Can this user access THIS specific resource?
+- Is this operation valid in the current state?
+- Does the user have sufficient balance/credits?
+- Are rate limits or quota exceeded?
+- Is the requested quantity available?
+```
+
+---
+
+### 10. Error Handling & Information Disclosure
+
+**Problem:** Poor error handling crashes applications or leaks sensitive information to attackers.
+
+**Requirements:**
+- Implement comprehensive error handling at all layers
+- NEVER expose stack traces or internal errors to clients
+- Log detailed errors server-side for debugging
+- Return generic error messages to clients
+- Use proper HTTP status codes
+- Implement global error handlers
+- Handle edge cases and validation errors gracefully
+- Set up error monitoring and alerting (Sentry, DataDog, etc.)
+- Never log sensitive data (passwords, tokens, PII)
+- Implement retry logic with exponential backoff for transient failures
+- Use circuit breakers for cascading failure prevention
+
+**Error Response Pattern:**
+```
+Client sees: "An error occurred. Please try again." (500)
+Server logs: Full stack trace, request details, user context
+```
+
+**HTTP Status Codes:**
+```
+200: Success
+400: Bad Request (client error)
+401: Unauthorized (authentication required)
+403: Forbidden (insufficient permissions)
+404: Not Found
+429: Too Many Requests
+500: Internal Server Error (generic)
+503: Service Unavailable
+```
+
+---
+
+## Implementation Checklist
+
+Before considering any code complete, verify:
+
+- [ ] Rate limiting implemented on all endpoints
+- [ ] No API keys or secrets in client code or version control
+- [ ] Authentication required on all non-public endpoints
+- [ ] Authorization checks verify user permissions for specific resources
+- [ ] CORS configured with specific allowed origins (no wildcards)
+- [ ] Token expiration and refresh logic implemented
+- [ ] Pagination implemented for list endpoints
+- [ ] Database queries use parameterized statements
+- [ ] All user input validated and sanitized
+- [ ] Business logic rules enforced server-side
+- [ ] Error handling implemented with secure error messages
+- [ ] Environment variables used for all config
+- [ ] Dependencies verified and scanned for vulnerabilities
+- [ ] Code tested with realistic load (not just 10 users)
+- [ ] Logging configured (without sensitive data)
+- [ ] Monitoring and alerting set up
+
+---
+
+## Development Workflow
+
+### 1. Understand Phase
+- What is the complete problem?
+- What are the edge cases?
+- What are the security implications?
+- What happens under load?
+- What are the failure modes?
+
+### 2. Design Phase
+- Design for production, not just localhost
+- Consider scalability from the start
+- Plan security layers
+- Define validation rules
+- Map out error scenarios
+
+### 3. Implementation Phase
+- Write secure code by default
+- Implement all security measures
+- Add comprehensive error handling
+- Write for maintainability
+
+### 4. Validation Phase
+- Test with realistic data volumes
+- Test authentication/authorization paths
+- Attempt to break your own code
+- Verify error handling
+- Load test critical paths
+
+---
+
+## Remember
+
+**The goal is not to write code that works on your machine with perfect inputs. The goal is to write code that:**
+- Works in production under load
+- Handles malicious inputs safely
+- Fails gracefully when things go wrong
+- Protects user data and system integrity
+- Is maintainable and debuggable
+
+**Always ask: "What could go wrong?" and "How could this be abused?"**%         ➜  ~ 
