@@ -19,10 +19,14 @@ import config from './config/index.js';
 import logger from './utils/logger.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { testConnection } from './database/supabase.js';
 
 // Routes
 import healthRoutes from './routes/healthRoutes.js';
+import authRoutes from './routes/authRoutes.js';
 import videoRoutes from './routes/videoRoutes.js';
+import transcriptionRoutes from './routes/transcriptionRoutes.js';
+import exportRoutes from './routes/exportRoutes.js';
 
 // ES Module __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -96,7 +100,10 @@ app.use('/uploads', express.static(uploadsPath));
 // ======================
 
 app.use('/api/health', healthRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/videos', videoRoutes);
+app.use('/api/transcription', transcriptionRoutes);
+app.use('/api/export', exportRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -122,33 +129,52 @@ app.use(errorHandler);
 // SERVER STARTUP
 // ======================
 
-const server = app.listen(config.port, () => {
-    logger.info(`
+// Test database connection before starting server
+async function startServer() {
+    try {
+        // Test database connection
+        const dbConnected = await testConnection();
+        if (!dbConnected) {
+            logger.error('Failed to connect to database. Server will not start.');
+            process.exit(1);
+        }
+
+        const server = app.listen(config.port, () => {
+            logger.info(`
 🎬 Kalakar API Server Started
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📍 URL: http://localhost:${config.port}
 🌍 Environment: ${config.nodeEnv}
 📁 Uploads: ${uploadsPath}
 🔒 CORS: ${corsOptions.origin.join(', ')}
+🗄️  Database: Connected
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  `);
-});
+      `);
+        });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    logger.info('SIGTERM received, shutting down gracefully...');
-    server.close(() => {
-        logger.info('Server closed');
-        process.exit(0);
-    });
-});
+        // Graceful shutdown
+        process.on('SIGTERM', () => {
+            logger.info('SIGTERM received, shutting down gracefully...');
+            server.close(() => {
+                logger.info('Server closed');
+                process.exit(0);
+            });
+        });
 
-process.on('SIGINT', () => {
-    logger.info('SIGINT received, shutting down gracefully...');
-    server.close(() => {
-        logger.info('Server closed');
-        process.exit(0);
-    });
-});
+        process.on('SIGINT', () => {
+            logger.info('SIGINT received, shutting down gracefully...');
+            server.close(() => {
+                logger.info('Server closed');
+                process.exit(0);
+            });
+        });
+
+    } catch (error) {
+        logger.error('Failed to start server', { error: error.message });
+        process.exit(1);
+    }
+}
+
+startServer();
 
 export default app;

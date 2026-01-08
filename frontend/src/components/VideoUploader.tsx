@@ -70,7 +70,7 @@ export default function VideoUploader({ onUploadComplete, onError }: VideoUpload
                 if (xhr.status >= 200 && xhr.status < 300) {
                     const response = JSON.parse(xhr.responseText);
                     if (response.success) {
-                        const videoUrl = `http://localhost:5000${response.data.video.url}`;
+                        const videoUrl = `http://localhost:5001${response.data.video.url}`;
                         onUploadComplete(videoUrl, response.data.video.id);
                     } else {
                         throw new Error(response.message || 'Upload failed');
@@ -87,7 +87,7 @@ export default function VideoUploader({ onUploadComplete, onError }: VideoUpload
                 setIsUploading(false);
             });
 
-            xhr.open('POST', 'http://localhost:5000/api/videos/upload');
+            xhr.open('POST', 'http://localhost:5001/api/videos/upload');
             xhr.send(formData);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Upload failed';
@@ -159,7 +159,7 @@ export default function VideoUploader({ onUploadComplete, onError }: VideoUpload
                             </div>
                         </div>
 
-                        <p className="text-[var(--text-muted)] text-sm">
+                        <p className="text-[var(--text-muted)] text-sm text-center">
                             Please wait while your video is being uploaded...
                         </p>
                     </div>

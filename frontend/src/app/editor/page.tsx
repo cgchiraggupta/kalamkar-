@@ -1,10 +1,24 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import VideoPlayer from '@/components/VideoPlayer';
 import VideoUploader from '@/components/VideoUploader';
+import {
+    startTranscription,
+    waitForTranscription,
+    getTranscriptionLanguages,
+    exportCaptions,
+    exportVideoWithCaptions,
+    getExportStatus,
+    Caption as ApiCaption,
+    Language,
+    TranscriptionJob,
+    CaptionStyle,
+    ExportOptions,
+    ExportResult
+} from '@/lib/api';
 
 interface Caption {
     id: string;
@@ -54,33 +68,54 @@ const templates = [
     { name: 'Classic', fontFamily: 'Roboto', fontSize: 24, color: '#FFFFFF', bold: false, shadow: true },
 ];
 
-// Demo captions for testing
-const demoCaptions: Caption[] = [
-    { id: '1', text: 'Welcome to Kalakar!', startTime: 0, endTime: 3 },
-    { id: '2', text: 'AI-powered captions for your videos', startTime: 3, endTime: 6 },
-    { id: '3', text: 'Supporting Hindi, Tamil, Telugu and more', startTime: 6, endTime: 9 },
-    { id: '4', text: 'Let\'s create something amazing!', startTime: 9, endTime: 12 },
+// Popular Indian language options for quick selection
+const quickLanguages = [
+    { code: 'auto', name: 'Auto-detect', emoji: '🌐' },
+    { code: 'hi', name: 'Hindi', emoji: '🇮🇳' },
+    { code: 'ta', name: 'Tamil', emoji: '🇮🇳' },
+    { code: 'te', name: 'Telugu', emoji: '🇮🇳' },
+    { code: 'en', name: 'English', emoji: '🇬🇧' },
 ];
 
-export default function EditorPage() {
+function EditorContent() {
     const searchParams = useSearchParams();
     const videoId = searchParams.get('video');
 
+    const [currentVideoId, setCurrentVideoId] = useState<string | null>(videoId);
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
-    const [captions, setCaptions] = useState<Caption[]>(demoCaptions);
+    const [captions, setCaptions] = useState<Caption[]>([]);
     const [selectedCaption, setSelectedCaption] = useState<string | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [style, setStyle] = useState<CaptionStyle>(defaultStyle);
     const [isTranscribing, setIsTranscribing] = useState(false);
+    const [transcriptionProgress, setTranscriptionProgress] = useState<string>('');
+    const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
+    const [selectedLanguage, setSelectedLanguage] = useState('auto');
+    const [languages, setLanguages] = useState<Language[]>([]);
     const [activeTab, setActiveTab] = useState<'captions' | 'style' | 'templates'>('captions');
+    const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+    const [exportProgress, setExportProgress] = useState<string>('');
+    const [exportError, setExportError] = useState<string | null>(null);
+    const [lastExport, setLastExport] = useState<ExportResult | null>(null);
 
     // Load video from URL param
     useEffect(() => {
         if (videoId) {
-            setVideoUrl(`http://localhost:5000/uploads/${videoId}.mp4`);
+            setVideoUrl(`http://localhost:5001/uploads/${videoId}.mp4`);
+            setCurrentVideoId(videoId);
         }
     }, [videoId]);
+
+    // Fetch supported languages
+    useEffect(() => {
+        getTranscriptionLanguages().then(response => {
+            if (response.success && response.data?.languages) {
+                setLanguages(response.data.languages);
+            }
+        });
+    }, []);
 
     // Get current caption based on playback time
     const currentCaption = captions.find(
@@ -89,15 +124,63 @@ export default function EditorPage() {
 
     const handleVideoUpload = (url: string, id: string) => {
         setVideoUrl(url);
+        setCurrentVideoId(id);
+        setCaptions([]); // Clear previous captions
+        setTranscriptionError(null);
     };
 
     const handleTranscribe = async () => {
+        if (!currentVideoId) {
+            setTranscriptionError('Please upload a video first');
+            return;
+        }
+
         setIsTranscribing(true);
-        // Simulate transcription delay
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        // In real implementation, this would call the AI transcription API
-        setCaptions(demoCaptions);
-        setIsTranscribing(false);
+        setTranscriptionError(null);
+        setTranscriptionProgress('Starting transcription...');
+
+        try {
+            // Start the transcription job
+            const startResponse = await startTranscription(currentVideoId, selectedLanguage);
+
+            if (!startResponse.success || !startResponse.data?.jobId) {
+                throw new Error(startResponse.error || 'Failed to start transcription');
+            }
+
+            const { jobId } = startResponse.data;
+            setTranscriptionProgress('Processing audio...');
+
+            // Wait for completion with progress updates
+            const result = await waitForTranscription(
+                jobId,
+                (job: TranscriptionJob) => {
+                    if (job.status === 'processing') {
+                        setTranscriptionProgress(`Transcribing... ${job.progress}%`);
+                    }
+                }
+            );
+
+            // Convert API captions to our format
+            const newCaptions: Caption[] = result.captions.map(cap => ({
+                id: cap.id,
+                text: cap.text,
+                startTime: cap.startTime,
+                endTime: cap.endTime,
+            }));
+
+            setCaptions(newCaptions);
+            setTranscriptionProgress(`Completed! Detected language: ${result.language}`);
+
+            // Clear progress message after 3 seconds
+            setTimeout(() => setTranscriptionProgress(''), 3000);
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Transcription failed';
+            setTranscriptionError(message);
+            setTranscriptionProgress('');
+        } finally {
+            setIsTranscribing(false);
+        }
     };
 
     const updateCaption = (id: string, text: string) => {
@@ -122,6 +205,73 @@ export default function EditorPage() {
         const secs = Math.floor(seconds % 60);
         const ms = Math.floor((seconds % 1) * 100);
         return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    };
+
+    const handleExportVideo = async () => {
+        if (!currentVideoId || captions.length === 0) {
+            setExportError('Please upload a video and add captions before exporting');
+            return;
+        }
+
+        setIsExporting(true);
+        setExportError(null);
+        setExportProgress('Preparing export...');
+
+        try {
+            // Convert style to API format
+            const exportStyle: CaptionStyle = {
+                fontFamily: style.fontFamily,
+                fontSize: style.fontSize,
+                color: style.color,
+                backgroundColor: style.backgroundColor,
+                position: style.position,
+                bold: style.bold,
+                italic: style.italic,
+                shadow: style.shadow,
+            };
+
+            const exportOptions: ExportOptions = {
+                quality: 'high',
+                format: 'mp4'
+            };
+
+            setExportProgress('Burning captions into video...');
+
+            const result = await exportVideoWithCaptions(
+                currentVideoId,
+                captions,
+                exportStyle,
+                exportOptions
+            );
+
+            if (result.success && result.data?.export) {
+                setLastExport(result.data.export);
+                setExportProgress(`Export completed! File: ${result.data.export.filename}`);
+                
+                // Clear progress message after 5 seconds
+                setTimeout(() => setExportProgress(''), 5000);
+            } else {
+                throw new Error(result.error || 'Export failed');
+            }
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Export failed';
+            setExportError(message);
+            setExportProgress('');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleDownloadExport = () => {
+        if (lastExport) {
+            const link = document.createElement('a');
+            link.href = `http://localhost:5001${lastExport.url}`;
+            link.download = lastExport.filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
     };
 
     const getCaptionStyle = () => ({
@@ -158,11 +308,24 @@ export default function EditorPage() {
                         </svg>
                         Save Project
                     </button>
-                    <button className="btn btn-primary text-sm py-2">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Export Video
+                    <button 
+                        onClick={handleExportVideo}
+                        disabled={!videoUrl || captions.length === 0 || isExporting}
+                        className="btn btn-primary text-sm py-2"
+                    >
+                        {isExporting ? (
+                            <>
+                                <div className="spinner w-4 h-4" />
+                                Exporting...
+                            </>
+                        ) : (
+                            <>
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                Export Video
+                            </>
+                        )}
                     </button>
                 </div>
             </div>
@@ -178,8 +341,8 @@ export default function EditorPage() {
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
                                 className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${activeTab === tab
-                                        ? 'text-[var(--accent-primary)] border-b-2 border-[var(--accent-primary)]'
-                                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                                    ? 'text-[var(--accent-primary)] border-b-2 border-[var(--accent-primary)]'
+                                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                                     }`}
                             >
                                 {tab}
@@ -191,28 +354,125 @@ export default function EditorPage() {
                     <div className="flex-1 overflow-y-auto p-4">
                         {activeTab === 'captions' && (
                             <div className="space-y-3">
-                                {captions.length === 0 ? (
-                                    <div className="text-center py-8">
-                                        <p className="text-[var(--text-muted)] text-sm mb-4">No captions yet</p>
-                                        <button
-                                            onClick={handleTranscribe}
-                                            disabled={!videoUrl || isTranscribing}
-                                            className="btn btn-primary text-sm"
+                                {/* Language Selector */}
+                                <div className="mb-4">
+                                    <label className="text-xs text-[var(--text-muted)] mb-2 block">
+                                        Transcription Language
+                                    </label>
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                        {quickLanguages.map(lang => (
+                                            <button
+                                                key={lang.code}
+                                                onClick={() => setSelectedLanguage(lang.code)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${selectedLanguage === lang.code
+                                                    ? 'bg-[var(--accent-primary)] text-white'
+                                                    : 'bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]'
+                                                    }`}
+                                            >
+                                                <span className="mr-1">{lang.emoji}</span>
+                                                {lang.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {languages.length > 5 && (
+                                        <select
+                                            value={selectedLanguage}
+                                            onChange={(e) => setSelectedLanguage(e.target.value)}
+                                            className="input text-sm"
                                         >
-                                            {isTranscribing ? (
-                                                <>
-                                                    <div className="spinner w-4 h-4" />
-                                                    Transcribing...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                                                    </svg>
-                                                    Auto Transcribe
-                                                </>
-                                            )}
-                                        </button>
+                                            {languages.map(lang => (
+                                                <option key={lang.code} value={lang.code}>
+                                                    {lang.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    )}
+                                </div>
+
+                                {/* Transcribe Button */}
+                                <button
+                                    onClick={handleTranscribe}
+                                    disabled={!videoUrl || isTranscribing}
+                                    className="w-full btn btn-primary text-sm py-3"
+                                >
+                                    {isTranscribing ? (
+                                        <>
+                                            <div className="spinner w-4 h-4" />
+                                            {transcriptionProgress || 'Transcribing...'}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                                            </svg>
+                                            {captions.length > 0 ? 'Re-transcribe' : 'Auto Transcribe'}
+                                        </>
+                                    )}
+                                </button>
+
+                                {/* Progress Message */}
+                                {transcriptionProgress && !isTranscribing && (
+                                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm text-center">
+                                        ✓ {transcriptionProgress}
+                                    </div>
+                                )}
+
+                                {/* Error Message */}
+                                {transcriptionError && (
+                                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                                        <div className="flex items-start gap-2">
+                                            <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            <div>
+                                                <p className="font-medium">Transcription Error</p>
+                                                <p className="text-xs mt-1 opacity-80">{transcriptionError}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Export Progress Message */}
+                                {exportProgress && !isExporting && (
+                                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm text-center">
+                                        ✓ {exportProgress}
+                                        {lastExport && (
+                                            <button
+                                                onClick={handleDownloadExport}
+                                                className="block w-full mt-2 btn btn-secondary text-xs py-1"
+                                            >
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                                Download ({lastExport.sizeFormatted})
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Export Error Message */}
+                                {exportError && (
+                                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                                        <div className="flex items-start gap-2">
+                                            <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            <div>
+                                                <p className="font-medium">Export Error</p>
+                                                <p className="text-xs mt-1 opacity-80">{exportError}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Captions List */}
+                                {captions.length === 0 && !isTranscribing && !transcriptionError ? (
+                                    <div className="text-center py-6 text-[var(--text-muted)] text-sm">
+                                        <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                                        </svg>
+                                        <p>No captions yet</p>
+                                        <p className="text-xs mt-1">Upload a video and click "Auto Transcribe"</p>
                                     </div>
                                 ) : (
                                     captions.map((caption, index) => (
@@ -220,10 +480,10 @@ export default function EditorPage() {
                                             key={caption.id}
                                             onClick={() => setSelectedCaption(caption.id)}
                                             className={`p-3 rounded-lg cursor-pointer transition-all ${selectedCaption === caption.id
-                                                    ? 'bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]'
-                                                    : currentCaption?.id === caption.id
-                                                        ? 'bg-[var(--bg-elevated)] border border-[var(--border-secondary)]'
-                                                        : 'bg-[var(--bg-card)] border border-transparent hover:border-[var(--border-primary)]'
+                                                ? 'bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]'
+                                                : currentCaption?.id === caption.id
+                                                    ? 'bg-[var(--bg-elevated)] border border-[var(--border-secondary)]'
+                                                    : 'bg-[var(--bg-card)] border border-transparent hover:border-[var(--border-primary)]'
                                                 }`}
                                         >
                                             <div className="flex items-center justify-between mb-2">
@@ -428,8 +688,8 @@ export default function EditorPage() {
                                             key={caption.id}
                                             onClick={() => setSelectedCaption(caption.id)}
                                             className={`absolute top-1 bottom-1 rounded cursor-pointer transition-all ${selectedCaption === caption.id
-                                                    ? 'bg-[var(--accent-primary)]'
-                                                    : 'bg-[var(--accent-primary)]/50 hover:bg-[var(--accent-primary)]/70'
+                                                ? 'bg-[var(--accent-primary)]'
+                                                : 'bg-[var(--accent-primary)]/50 hover:bg-[var(--accent-primary)]/70'
                                                 }`}
                                             style={{ left: `${left}%`, width: `${width}%` }}
                                         >
@@ -456,5 +716,26 @@ export default function EditorPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+// Loading fallback component
+function EditorLoading() {
+    return (
+        <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center">
+            <div className="text-center">
+                <div className="spinner w-8 h-8 mx-auto mb-4" />
+                <p className="text-[var(--text-muted)]">Loading editor...</p>
+            </div>
+        </div>
+    );
+}
+
+// Default export with Suspense boundary for useSearchParams
+export default function EditorPage() {
+    return (
+        <Suspense fallback={<EditorLoading />}>
+            <EditorContent />
+        </Suspense>
     );
 }

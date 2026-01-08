@@ -89,14 +89,14 @@ export default function HomePage() {
             </div>
 
             {/* Main Heading */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-tight animate-slideUp" style={{ animationDelay: '0.1s' }}>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-tight animate-slideUp text-balance" style={{ animationDelay: '0.1s' }}>
               Add <span className="gradient-text">Stunning Captions</span>
               <br />
               to Your Videos in Seconds
             </h1>
 
             {/* Subheading */}
-            <p className="text-lg sm:text-xl text-[var(--text-secondary)] max-w-2xl mx-auto mb-10 animate-slideUp" style={{ animationDelay: '0.2s' }}>
+            <p className="text-lg sm:text-xl text-[var(--text-secondary)] max-w-2xl mx-auto mb-10 animate-slideUp text-balance" style={{ animationDelay: '0.2s' }}>
               AI-powered transcription that understands Hindi, Tamil, Telugu, and 15+ Indian languages.
               Perfect accuracy. Beautiful styles. Export in one click.
             </p>

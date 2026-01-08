@@ -38,12 +38,19 @@ if (criticalVars.length > 0) {
 const config = {
   // Server
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT, 10) || 5000,
+  port: parseInt(process.env.PORT, 10) || 5001,
   isDev: process.env.NODE_ENV !== 'production',
   isProd: process.env.NODE_ENV === 'production',
 
   // CORS - Specific origins only (no wildcards per security rules)
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+
+  // Supabase Configuration
+  supabase: {
+    url: process.env.SUPABASE_URL,
+    anonKey: process.env.SUPABASE_ANON_KEY,
+    serviceKey: process.env.SUPABASE_SERVICE_KEY,
+  },
   
   // JWT Configuration
   jwt: {
@@ -73,9 +80,11 @@ const config = {
     maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
   },
 
-  // AI APIs (keys stored securely, never exposed to client)
+  // AI Configuration
   ai: {
-    openaiApiKey: process.env.OPENAI_API_KEY,
+    useLocalWhisper: process.env.USE_LOCAL_WHISPER === 'true' || true, // Default to local
+    whisperModel: process.env.WHISPER_MODEL || 'small',
+    openaiApiKey: process.env.OPENAI_API_KEY, // Fallback for API usage
     googleCredentials: process.env.GOOGLE_APPLICATION_CREDENTIALS,
   },
 
