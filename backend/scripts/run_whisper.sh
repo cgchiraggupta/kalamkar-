@@ -19,36 +19,36 @@ if [ "$AUDIO_PATH" = "--help" ] || [ "$AUDIO_PATH" = "-h" ]; then
 fi
 
 if [ -z "$AUDIO_PATH" ]; then
-    echo '{"success": false, "error": "Audio path is required"}' 
+    echo '{"success": false, "error": "Audio path is required"}'
     exit 1
 fi
 
 if [ ! -f "$AUDIO_PATH" ]; then
-    echo '{"success": false, "error": "Audio file not found: '$AUDIO_PATH'"}' 
+    echo '{"success": false, "error": "Audio file not found: '$AUDIO_PATH'"}'
     exit 1
 fi
 
-# Function to try running whisper with different methods
-run_whisper() {
-    local method="$1"
-    local cmd="$2"
-    
-    # Redirect stderr to suppress non-JSON output
-    if eval "$cmd" 2>/dev/null; then
-        return 0
-    else
-        return 1
-    fi
-}
+# Add pipx path to PATH
+export PATH="$HOME/.local/bin:$PATH"
 
-# Try different ways to run Whisper
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="$SCRIPT_DIR/whisper_transcribe.py"
+
+# Method 0: Try pipx-installed whisper directly with our Python script
+if command -v whisper &> /dev/null; then
+    # Use Python from pipx whisper environment
+    WHISPER_VENV="$HOME/.local/share/pipx/venvs/openai-whisper"
+    if [ -f "$WHISPER_VENV/bin/python" ]; then
+        if "$WHISPER_VENV/bin/python" "$PYTHON_SCRIPT" "$AUDIO_PATH" --model "$MODEL" ${LANGUAGE:+--language "$LANGUAGE"} 2>/dev/null; then
+            exit 0
+        fi
+    fi
+fi
 
 # Method 1: Try common virtual environment locations
 VENV_PATHS=(
     "$HOME/whisper-venv"
-    "$HOME/.whisper-venv" 
+    "$HOME/.whisper-venv"
     "$HOME/venv"
     "$HOME/.venv"
     "$(dirname "$SCRIPT_DIR")/whisper-venv"
@@ -75,5 +75,5 @@ for PYTHON_CMD in python3 python; do
 done
 
 # If all methods fail
-echo '{"success": false, "error": "Whisper not found. Please ensure Whisper is installed. Try: pip install openai-whisper"}' 
+echo '{"success": false, "error": "Whisper not found. Please ensure Whisper is installed. Try: pipx install openai-whisper"}'
 exit 1

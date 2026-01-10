@@ -27,6 +27,11 @@ import authRoutes from './routes/authRoutes.js';
 import videoRoutes from './routes/videoRoutes.js';
 import transcriptionRoutes from './routes/transcriptionRoutes.js';
 import exportRoutes from './routes/exportRoutes.js';
+import audioRoutes from './routes/audioRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
+import emailRoutes from './routes/emailRoutes.js';
+import projectRoutes from './routes/projectRoutes.js';
+import analyticsRoutes from './routes/analyticsRoutes.js';
 
 // ES Module __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -104,6 +109,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/videos', videoRoutes);
 app.use('/api/transcription', transcriptionRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/audio', audioRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/email', emailRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {

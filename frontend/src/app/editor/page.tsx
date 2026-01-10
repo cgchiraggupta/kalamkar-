@@ -1,21 +1,26 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import VideoPlayer from '@/components/VideoPlayer';
 import VideoUploader from '@/components/VideoUploader';
+import Timeline from '@/components/Timeline';
+import CaptionEditor from '@/components/CaptionEditor';
+import StylePanel from '@/components/StylePanel';
+import TemplateGallery from '@/components/TemplateGallery';
+import ExportPanel from '@/components/ExportPanel';
+import AudioPanel from '@/components/AudioPanel';
 import {
     startTranscription,
     waitForTranscription,
     getTranscriptionLanguages,
-    exportCaptions,
     exportVideoWithCaptions,
-    getExportStatus,
+    API_BASE_URL,
     Caption as ApiCaption,
     Language,
     TranscriptionJob,
-    CaptionStyle,
+    CaptionStyle as ApiCaptionStyle,
     ExportOptions,
     ExportResult
 } from '@/lib/api';
@@ -36,6 +41,23 @@ interface CaptionStyle {
     bold: boolean;
     italic: boolean;
     shadow: boolean;
+    outline: boolean;
+    outlineColor: string;
+    padding: number;
+    borderRadius: number;
+    opacity: number;
+    letterSpacing: number;
+    lineHeight: number;
+}
+
+interface ExportJob {
+    id: string;
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    progress: number;
+    filename?: string;
+    url?: string;
+    sizeFormatted?: string;
+    error?: string;
 }
 
 const defaultStyle: CaptionStyle = {
@@ -47,35 +69,14 @@ const defaultStyle: CaptionStyle = {
     bold: true,
     italic: false,
     shadow: true,
+    outline: false,
+    outlineColor: '#000000',
+    padding: 8,
+    borderRadius: 4,
+    opacity: 1,
+    letterSpacing: 0,
+    lineHeight: 1.2,
 };
-
-const fonts = [
-    'Inter', 'Poppins', 'Roboto', 'Montserrat', 'Open Sans',
-    'Lato', 'Oswald', 'Playfair Display', 'Bebas Neue', 'Anton'
-];
-
-const colorPresets = [
-    '#FFFFFF', '#FFFF00', '#00FF00', '#00FFFF', '#FF00FF',
-    '#FF0000', '#FFA500', '#A35C5C', '#6366F1', '#000000'
-];
-
-const templates = [
-    { name: 'MrBeast', fontFamily: 'Bebas Neue', fontSize: 32, color: '#FFFF00', bold: true, shadow: true },
-    { name: 'Alex Hormozi', fontFamily: 'Anton', fontSize: 28, color: '#FFFFFF', bold: true, shadow: true },
-    { name: 'Ali Abdaal', fontFamily: 'Inter', fontSize: 22, color: '#FFFFFF', bold: false, shadow: false },
-    { name: 'Minimal', fontFamily: 'Inter', fontSize: 20, color: '#FFFFFF', bold: false, shadow: false },
-    { name: 'Bold Pink', fontFamily: 'Poppins', fontSize: 26, color: '#FF69B4', bold: true, shadow: true },
-    { name: 'Classic', fontFamily: 'Roboto', fontSize: 24, color: '#FFFFFF', bold: false, shadow: true },
-];
-
-// Popular Indian language options for quick selection
-const quickLanguages = [
-    { code: 'auto', name: 'Auto-detect', emoji: '🌐' },
-    { code: 'hi', name: 'Hindi', emoji: '🇮🇳' },
-    { code: 'ta', name: 'Tamil', emoji: '🇮🇳' },
-    { code: 'te', name: 'Telugu', emoji: '🇮🇳' },
-    { code: 'en', name: 'English', emoji: '🇬🇧' },
-];
 
 function EditorContent() {
     const searchParams = useSearchParams();
@@ -93,17 +94,14 @@ function EditorContent() {
     const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
     const [selectedLanguage, setSelectedLanguage] = useState('auto');
     const [languages, setLanguages] = useState<Language[]>([]);
-    const [activeTab, setActiveTab] = useState<'captions' | 'style' | 'templates'>('captions');
-    const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
+    const [activeTab, setActiveTab] = useState<'captions' | 'style' | 'templates' | 'audio' | 'export'>('captions');
     const [isExporting, setIsExporting] = useState(false);
-    const [exportProgress, setExportProgress] = useState<string>('');
-    const [exportError, setExportError] = useState<string | null>(null);
-    const [lastExport, setLastExport] = useState<ExportResult | null>(null);
+    const [exportJob, setExportJob] = useState<ExportJob | null>(null);
 
     // Load video from URL param
     useEffect(() => {
         if (videoId) {
-            setVideoUrl(`http://localhost:5001/uploads/${videoId}.mp4`);
+            setVideoUrl(`${API_BASE_URL}/uploads/${videoId}.mp4`);
             setCurrentVideoId(videoId);
         }
     }, [videoId]);
@@ -183,43 +181,74 @@ function EditorContent() {
         }
     };
 
-    const updateCaption = (id: string, text: string) => {
+    // Handle caption updates
+    const handleCaptionUpdate = (id: string, updates: Partial<Caption>) => {
         setCaptions(prev =>
-            prev.map(cap => cap.id === id ? { ...cap, text } : cap)
+            prev.map(cap => cap.id === id ? { ...cap, ...updates } : cap)
         );
     };
 
-    const applyTemplate = (template: typeof templates[0]) => {
+    // Handle caption deletion
+    const handleCaptionDelete = (id: string) => {
+        setCaptions(prev => prev.filter(cap => cap.id !== id));
+        if (selectedCaption === id) {
+            setSelectedCaption(null);
+        }
+    };
+
+    // Handle caption addition
+    const handleCaptionAdd = (startTime: number) => {
+        const newCaption: Caption = {
+            id: `cap_${Date.now()}`,
+            text: '',
+            startTime,
+            endTime: startTime + 3, // 3 second default duration
+        };
+        setCaptions(prev => [...prev, newCaption].sort((a, b) => a.startTime - b.startTime));
+        setSelectedCaption(newCaption.id);
+    };
+
+    // Handle time seeking
+    const handleTimeSeek = (time: number) => {
+        setCurrentTime(time);
+        // You would also seek the video player here
+    };
+
+    // Handle caption timing changes
+    const handleCaptionTimeChange = (id: string, startTime: number, endTime: number) => {
+        handleCaptionUpdate(id, { startTime, endTime });
+    };
+
+    // Handle template selection
+    const handleTemplateSelect = (template: any) => {
         setStyle(prev => ({
             ...prev,
-            fontFamily: template.fontFamily,
-            fontSize: template.fontSize,
-            color: template.color,
-            bold: template.bold,
-            shadow: template.shadow,
+            ...template.style
         }));
+        setActiveTab('style'); // Switch to style tab to see changes
     };
 
-    const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        const ms = Math.floor((seconds % 1) * 100);
-        return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    // Handle style changes
+    const handleStyleChange = (updates: Partial<CaptionStyle>) => {
+        setStyle(prev => ({ ...prev, ...updates }));
     };
 
-    const handleExportVideo = async () => {
+    // Handle export
+    const handleExportVideo = async (options: ExportOptions) => {
         if (!currentVideoId || captions.length === 0) {
-            setExportError('Please upload a video and add captions before exporting');
             return;
         }
 
         setIsExporting(true);
-        setExportError(null);
-        setExportProgress('Preparing export...');
+        setExportJob({
+            id: `export_${Date.now()}`,
+            status: 'processing',
+            progress: 0
+        });
 
         try {
-            // Convert style to API format
-            const exportStyle: CaptionStyle = {
+            // Convert style to API format (only use basic properties for API)
+            const exportStyle = {
                 fontFamily: style.fontFamily,
                 fontSize: style.fontSize,
                 color: style.color,
@@ -230,48 +259,47 @@ function EditorContent() {
                 shadow: style.shadow,
             };
 
-            const exportOptions: ExportOptions = {
-                quality: 'high',
-                format: 'mp4'
-            };
-
-            setExportProgress('Burning captions into video...');
-
             const result = await exportVideoWithCaptions(
                 currentVideoId,
                 captions,
                 exportStyle,
-                exportOptions
+                options
             );
 
             if (result.success && result.data?.export) {
-                setLastExport(result.data.export);
-                setExportProgress(`Export completed! File: ${result.data.export.filename}`);
-                
-                // Clear progress message after 5 seconds
-                setTimeout(() => setExportProgress(''), 5000);
+                setExportJob({
+                    id: result.data.export.exportId,
+                    status: 'completed',
+                    progress: 100,
+                    filename: result.data.export.filename,
+                    url: result.data.export.url,
+                    sizeFormatted: result.data.export.sizeFormatted
+                });
             } else {
                 throw new Error(result.error || 'Export failed');
             }
 
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Export failed';
-            setExportError(message);
-            setExportProgress('');
+            setExportJob({
+                id: `export_${Date.now()}`,
+                status: 'failed',
+                progress: 0,
+                error: message
+            });
         } finally {
             setIsExporting(false);
         }
     };
 
-    const handleDownloadExport = () => {
-        if (lastExport) {
-            const link = document.createElement('a');
-            link.href = `http://localhost:5001${lastExport.url}`;
-            link.download = lastExport.filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
+    // Handle download
+    const handleDownload = (url: string, filename: string) => {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
     const getCaptionStyle = () => ({
@@ -282,8 +310,15 @@ function EditorContent() {
         fontWeight: style.bold ? 'bold' : 'normal',
         fontStyle: style.italic ? 'italic' : 'normal',
         textShadow: style.shadow ? '2px 2px 4px rgba(0,0,0,0.8)' : 'none',
-        padding: '8px 16px',
-        borderRadius: '4px',
+        WebkitTextStroke: style.outline ? `1px ${style.outlineColor}` : 'none',
+        padding: `${style.padding}px`,
+        borderRadius: `${style.borderRadius}px`,
+        opacity: style.opacity,
+        letterSpacing: `${style.letterSpacing}px`,
+        lineHeight: style.lineHeight,
+        display: 'inline-block',
+        maxWidth: '300px',
+        textAlign: 'center' as const,
     });
 
     return (
@@ -308,8 +343,8 @@ function EditorContent() {
                         </svg>
                         Save Project
                     </button>
-                    <button 
-                        onClick={handleExportVideo}
+                    <button
+                        onClick={() => handleExportVideo({ quality: 'high', format: 'mp4' })}
                         disabled={!videoUrl || captions.length === 0 || isExporting}
                         className="btn btn-primary text-sm py-2"
                     >
@@ -332,15 +367,15 @@ function EditorContent() {
 
             {/* Main Editor Layout */}
             <div className="flex-1 flex overflow-hidden">
-                {/* Left Sidebar - Captions List */}
+                {/* Left Sidebar - Controls */}
                 <div className="w-80 border-r border-[var(--border-primary)] bg-[var(--bg-secondary)] flex flex-col">
                     {/* Tabs */}
                     <div className="flex border-b border-[var(--border-primary)]">
-                        {(['captions', 'style', 'templates'] as const).map((tab) => (
+                        {(['captions', 'style', 'templates', 'audio', 'export'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
-                                className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${activeTab === tab
+                                className={`flex-1 py-3 text-xs font-medium capitalize transition-colors ${activeTab === tab
                                     ? 'text-[var(--accent-primary)] border-b-2 border-[var(--accent-primary)]'
                                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                                     }`}
@@ -351,282 +386,52 @@ function EditorContent() {
                     </div>
 
                     {/* Tab Content */}
-                    <div className="flex-1 overflow-y-auto p-4">
+                    <div className="flex-1 overflow-hidden">
                         {activeTab === 'captions' && (
-                            <div className="space-y-3">
-                                {/* Language Selector */}
-                                <div className="mb-4">
-                                    <label className="text-xs text-[var(--text-muted)] mb-2 block">
-                                        Transcription Language
-                                    </label>
-                                    <div className="flex flex-wrap gap-2 mb-2">
-                                        {quickLanguages.map(lang => (
-                                            <button
-                                                key={lang.code}
-                                                onClick={() => setSelectedLanguage(lang.code)}
-                                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${selectedLanguage === lang.code
-                                                    ? 'bg-[var(--accent-primary)] text-white'
-                                                    : 'bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]'
-                                                    }`}
-                                            >
-                                                <span className="mr-1">{lang.emoji}</span>
-                                                {lang.name}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {languages.length > 5 && (
-                                        <select
-                                            value={selectedLanguage}
-                                            onChange={(e) => setSelectedLanguage(e.target.value)}
-                                            className="input text-sm"
-                                        >
-                                            {languages.map(lang => (
-                                                <option key={lang.code} value={lang.code}>
-                                                    {lang.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    )}
-                                </div>
-
-                                {/* Transcribe Button */}
-                                <button
-                                    onClick={handleTranscribe}
-                                    disabled={!videoUrl || isTranscribing}
-                                    className="w-full btn btn-primary text-sm py-3"
-                                >
-                                    {isTranscribing ? (
-                                        <>
-                                            <div className="spinner w-4 h-4" />
-                                            {transcriptionProgress || 'Transcribing...'}
-                                        </>
-                                    ) : (
-                                        <>
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                                            </svg>
-                                            {captions.length > 0 ? 'Re-transcribe' : 'Auto Transcribe'}
-                                        </>
-                                    )}
-                                </button>
-
-                                {/* Progress Message */}
-                                {transcriptionProgress && !isTranscribing && (
-                                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm text-center">
-                                        ✓ {transcriptionProgress}
-                                    </div>
-                                )}
-
-                                {/* Error Message */}
-                                {transcriptionError && (
-                                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                                        <div className="flex items-start gap-2">
-                                            <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            <div>
-                                                <p className="font-medium">Transcription Error</p>
-                                                <p className="text-xs mt-1 opacity-80">{transcriptionError}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Export Progress Message */}
-                                {exportProgress && !isExporting && (
-                                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm text-center">
-                                        ✓ {exportProgress}
-                                        {lastExport && (
-                                            <button
-                                                onClick={handleDownloadExport}
-                                                className="block w-full mt-2 btn btn-secondary text-xs py-1"
-                                            >
-                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                                </svg>
-                                                Download ({lastExport.sizeFormatted})
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Export Error Message */}
-                                {exportError && (
-                                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                                        <div className="flex items-start gap-2">
-                                            <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            <div>
-                                                <p className="font-medium">Export Error</p>
-                                                <p className="text-xs mt-1 opacity-80">{exportError}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Captions List */}
-                                {captions.length === 0 && !isTranscribing && !transcriptionError ? (
-                                    <div className="text-center py-6 text-[var(--text-muted)] text-sm">
-                                        <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                                        </svg>
-                                        <p>No captions yet</p>
-                                        <p className="text-xs mt-1">Upload a video and click "Auto Transcribe"</p>
-                                    </div>
-                                ) : (
-                                    captions.map((caption, index) => (
-                                        <div
-                                            key={caption.id}
-                                            onClick={() => setSelectedCaption(caption.id)}
-                                            className={`p-3 rounded-lg cursor-pointer transition-all ${selectedCaption === caption.id
-                                                ? 'bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]'
-                                                : currentCaption?.id === caption.id
-                                                    ? 'bg-[var(--bg-elevated)] border border-[var(--border-secondary)]'
-                                                    : 'bg-[var(--bg-card)] border border-transparent hover:border-[var(--border-primary)]'
-                                                }`}
-                                        >
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-xs font-mono text-[var(--text-muted)]">
-                                                    #{index + 1}
-                                                </span>
-                                                <span className="text-xs font-mono text-[var(--text-muted)]">
-                                                    {formatTime(caption.startTime)} → {formatTime(caption.endTime)}
-                                                </span>
-                                            </div>
-                                            <input
-                                                type="text"
-                                                value={caption.text}
-                                                onChange={(e) => updateCaption(caption.id, e.target.value)}
-                                                className="w-full bg-transparent border-none text-sm text-[var(--text-primary)] focus:outline-none"
-                                            />
-                                        </div>
-                                    ))
-                                )}
-                            </div>
+                            <CaptionEditor
+                                captions={captions}
+                                selectedCaption={selectedCaption}
+                                currentTime={currentTime}
+                                onCaptionUpdate={handleCaptionUpdate}
+                                onCaptionSelect={setSelectedCaption}
+                                onCaptionDelete={handleCaptionDelete}
+                                onCaptionAdd={handleCaptionAdd}
+                                onSeekToCaption={handleTimeSeek}
+                            />
                         )}
 
                         {activeTab === 'style' && (
-                            <div className="space-y-6">
-                                {/* Font Family */}
-                                <div>
-                                    <label className="text-sm text-[var(--text-secondary)] mb-2 block">Font Family</label>
-                                    <select
-                                        value={style.fontFamily}
-                                        onChange={(e) => setStyle(prev => ({ ...prev, fontFamily: e.target.value }))}
-                                        className="input"
-                                    >
-                                        {fonts.map(font => (
-                                            <option key={font} value={font}>{font}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Font Size */}
-                                <div>
-                                    <label className="text-sm text-[var(--text-secondary)] mb-2 block">
-                                        Font Size: {style.fontSize}px
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min={12}
-                                        max={72}
-                                        value={style.fontSize}
-                                        onChange={(e) => setStyle(prev => ({ ...prev, fontSize: parseInt(e.target.value) }))}
-                                        className="w-full"
-                                    />
-                                </div>
-
-                                {/* Color */}
-                                <div>
-                                    <label className="text-sm text-[var(--text-secondary)] mb-2 block">Text Color</label>
-                                    <div className="flex flex-wrap gap-2 mb-2">
-                                        {colorPresets.map(color => (
-                                            <button
-                                                key={color}
-                                                onClick={() => setStyle(prev => ({ ...prev, color }))}
-                                                className={`w-8 h-8 rounded-lg border-2 transition-transform hover:scale-110 ${style.color === color ? 'border-white' : 'border-transparent'
-                                                    }`}
-                                                style={{ backgroundColor: color }}
-                                            />
-                                        ))}
-                                    </div>
-                                    <input
-                                        type="text"
-                                        value={style.color}
-                                        onChange={(e) => setStyle(prev => ({ ...prev, color: e.target.value }))}
-                                        className="input text-sm"
-                                        placeholder="#FFFFFF"
-                                    />
-                                </div>
-
-                                {/* Text Styles */}
-                                <div>
-                                    <label className="text-sm text-[var(--text-secondary)] mb-2 block">Text Style</label>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => setStyle(prev => ({ ...prev, bold: !prev.bold }))}
-                                            className={`btn btn-icon ${style.bold ? 'btn-primary' : 'btn-secondary'}`}
-                                        >
-                                            <span className="font-bold">B</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setStyle(prev => ({ ...prev, italic: !prev.italic }))}
-                                            className={`btn btn-icon ${style.italic ? 'btn-primary' : 'btn-secondary'}`}
-                                        >
-                                            <span className="italic">I</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setStyle(prev => ({ ...prev, shadow: !prev.shadow }))}
-                                            className={`btn btn-icon ${style.shadow ? 'btn-primary' : 'btn-secondary'}`}
-                                        >
-                                            <span style={{ textShadow: '1px 1px 2px black' }}>S</span>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Position */}
-                                <div>
-                                    <label className="text-sm text-[var(--text-secondary)] mb-2 block">Position</label>
-                                    <div className="flex gap-2">
-                                        {(['top', 'center', 'bottom'] as const).map(pos => (
-                                            <button
-                                                key={pos}
-                                                onClick={() => setStyle(prev => ({ ...prev, position: pos }))}
-                                                className={`btn flex-1 text-sm capitalize ${style.position === pos ? 'btn-primary' : 'btn-secondary'
-                                                    }`}
-                                            >
-                                                {pos}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
+                            <StylePanel
+                                style={style}
+                                onStyleChange={handleStyleChange}
+                                previewText={currentCaption?.text || "Sample Caption Text"}
+                            />
                         )}
 
                         {activeTab === 'templates' && (
-                            <div className="grid grid-cols-2 gap-3">
-                                {templates.map((template, index) => (
-                                    <button
-                                        key={index}
-                                        onClick={() => applyTemplate(template)}
-                                        className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)] transition-all text-center"
-                                    >
-                                        <div
-                                            className="text-sm mb-2 truncate"
-                                            style={{
-                                                fontFamily: template.fontFamily,
-                                                color: template.color,
-                                                fontWeight: template.bold ? 'bold' : 'normal',
-                                                textShadow: template.shadow ? '1px 1px 2px black' : 'none',
-                                            }}
-                                        >
-                                            Sample
-                                        </div>
-                                        <div className="text-xs text-[var(--text-muted)]">{template.name}</div>
-                                    </button>
-                                ))}
-                            </div>
+                            <TemplateGallery
+                                onTemplateSelect={handleTemplateSelect}
+                                currentStyle={style}
+                            />
+                        )}
+
+                        {activeTab === 'audio' && (
+                            <AudioPanel
+                                videoId={currentVideoId}
+                                onEnhanced={(url) => {
+                                    setVideoUrl(url);
+                                }}
+                            />
+                        )}
+
+                        {activeTab === 'export' && (
+                            <ExportPanel
+                                videoId={currentVideoId}
+                                captionsCount={captions.length}
+                                onExport={handleExportVideo}
+                                exportJob={exportJob}
+                                onDownload={handleDownload}
+                            />
                         )}
                     </div>
                 </div>
@@ -670,48 +475,16 @@ function EditorContent() {
                     </div>
 
                     {/* Timeline */}
-                    {videoUrl && (
-                        <div className="timeline">
-                            <div className="flex items-center gap-4 mb-4">
-                                <span className="text-sm font-mono text-[var(--text-muted)]">
-                                    {formatTime(currentTime)} / {formatTime(duration)}
-                                </span>
-                            </div>
-
-                            {/* Caption Blocks on Timeline */}
-                            <div className="relative h-10 bg-[var(--bg-tertiary)] rounded-lg overflow-hidden">
-                                {captions.map((caption) => {
-                                    const left = (caption.startTime / duration) * 100;
-                                    const width = ((caption.endTime - caption.startTime) / duration) * 100;
-                                    return (
-                                        <div
-                                            key={caption.id}
-                                            onClick={() => setSelectedCaption(caption.id)}
-                                            className={`absolute top-1 bottom-1 rounded cursor-pointer transition-all ${selectedCaption === caption.id
-                                                ? 'bg-[var(--accent-primary)]'
-                                                : 'bg-[var(--accent-primary)]/50 hover:bg-[var(--accent-primary)]/70'
-                                                }`}
-                                            style={{ left: `${left}%`, width: `${width}%` }}
-                                        >
-                                            <span className="text-xs text-white px-1 truncate block">
-                                                {caption.text}
-                                            </span>
-                                        </div>
-                                    );
-                                })}
-
-                                {/* Playhead */}
-                                <div
-                                    className="absolute top-0 bottom-0 w-0.5 bg-white z-10"
-                                    style={{ left: `${(currentTime / duration) * 100}%` }}
-                                >
-                                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-white rounded-full" />
-                                </div>
-                            </div>
-
-                            {/* Waveform Placeholder */}
-                            <div className="mt-3 waveform opacity-30" />
-                        </div>
+                    {videoUrl && duration > 0 && (
+                        <Timeline
+                            duration={duration}
+                            currentTime={currentTime}
+                            captions={captions}
+                            selectedCaption={selectedCaption}
+                            onTimeSeek={handleTimeSeek}
+                            onCaptionSelect={setSelectedCaption}
+                            onCaptionTimeChange={handleCaptionTimeChange}
+                        />
                     )}
                 </div>
             </div>

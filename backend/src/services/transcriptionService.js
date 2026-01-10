@@ -21,6 +21,12 @@ import { ApiError } from '../middleware/errorHandler.js';
 import { TranscriptionJob } from '../models/TranscriptionJob.js';
 import { Video } from '../models/Video.js';
 import { User } from '../models/User.js';
+import {
+    diarizeAudio,
+    mergeTranscriptionWithSpeakers,
+    formatCaptionsWithSpeakers,
+    getAvailableMethods as getDiarizationMethods
+} from './speakerDiarizationService.js';
 
 const execAsync = promisify(exec);
 
@@ -553,4 +559,116 @@ function calculateAccuracyScore(whisperResult) {
     }, 0);
 
     return Math.round((totalConfidence / whisperResult.words.length) * 100) / 100;
+}
+
+/**
+ * Transcribe with multi-speaker detection
+ * @param {string} videoId - Video ID
+ * @param {string} userId - User ID
+ * @param {string} language - Language code
+ * @param {boolean} enableDiarization - Enable speaker diarization
+ * @returns {Promise<Object>} - Transcription result with speaker info
+ */
+export async function transcribeWithSpeakers(videoId, userId, language = 'auto', enableDiarization = true) {
+    let audioPath = null;
+
+    try {
+        // Get video and user
+        const video = await Video.findById(videoId, userId);
+        if (!video) {
+            throw new ApiError(404, 'Video not found');
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new ApiError(404, 'User not found');
+        }
+
+        // Calculate credits required (add 20% for diarization)
+        const baseCredits = TranscriptionJob.calculateCredits(video.durationSeconds || 60);
+        const creditsRequired = enableDiarization
+            ? Math.ceil(baseCredits * 1.2)
+            : baseCredits;
+
+        // Check if user has enough credits
+        if (!user.hasCredits(creditsRequired)) {
+            throw new ApiError(402, `Insufficient credits. Required: ${creditsRequired}, Available: ${user.creditsRemaining}`);
+        }
+
+        // Consume credits
+        await user.consumeCredits(creditsRequired, `Transcription with speakers for video ${video.originalName}`);
+
+        // Extract audio from video
+        const videoPath = path.join(config.upload.uploadDir, video.filename);
+        audioPath = await extractAudio(videoPath);
+
+        // Run transcription
+        const whisperResult = await transcribeWithWhisper(audioPath, language);
+
+        // Run speaker diarization if enabled
+        let diarizationResult = null;
+        if (enableDiarization) {
+            logger.info('Running speaker diarization', { videoId });
+            diarizationResult = await diarizeAudio(audioPath, whisperResult.segments);
+        }
+
+        // Merge transcription with speaker information
+        const mergedResult = mergeTranscriptionWithSpeakers(whisperResult, diarizationResult);
+
+        // Format captions with speaker labels
+        const captions = formatCaptions(mergedResult);
+        const captionsWithSpeakers = formatCaptionsWithSpeakers(captions, enableDiarization);
+
+        // Create completed job record
+        const job = await TranscriptionJob.create({
+            videoId,
+            userId,
+            languageCode: language,
+            modelUsed: config.ai.whisperModel
+        });
+
+        await job.saveCaptions(captionsWithSpeakers);
+        await job.markAsCompleted({
+            wordCount: mergedResult.words?.length || 0,
+            accuracyScore: calculateAccuracyScore(mergedResult),
+            creditsUsed: creditsRequired
+        });
+
+        logger.info('Multi-speaker transcription completed', {
+            videoId,
+            speakerCount: mergedResult.speakerCount || 1,
+            captionCount: captionsWithSpeakers.length
+        });
+
+        return {
+            success: true,
+            language: mergedResult.language,
+            duration: mergedResult.duration,
+            text: mergedResult.text,
+            captions: captionsWithSpeakers,
+            wordCount: mergedResult.words?.length || 0,
+            speakerCount: mergedResult.speakerCount || 1,
+            speakers: mergedResult.speakers || [],
+            diarizationMethod: diarizationResult?.method || 'none',
+            jobId: job.id
+        };
+
+    } finally {
+        // Clean up temporary audio file
+        if (audioPath && fs.existsSync(audioPath)) {
+            try {
+                await fs.promises.unlink(audioPath);
+                logger.info('Cleaned up temporary audio file', { audioPath });
+            } catch (cleanupError) {
+                logger.warn('Failed to clean up audio file', { audioPath, error: cleanupError.message });
+            }
+        }
+    }
+}
+
+/**
+ * Get available speaker diarization methods
+ */
+export async function getSpeakerDiarizationMethods() {
+    return getDiarizationMethods();
 }

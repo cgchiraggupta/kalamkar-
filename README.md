@@ -1,167 +1,183 @@
-# 🎬 Kalakar - AI Video Caption Platform
+# Kalakar - AI Video Caption Platform
 
-> **Production-Ready AI Video Caption Platform** - Automatically add stunning captions to your videos with AI, optimized for Indian languages.
+AI-powered video caption platform for Indian content creators. Automatically add accurate captions to videos using local OpenAI Whisper, supporting 15+ languages with focus on Hindi, Tamil, Telugu, and more.
 
-![Kalakar Banner](https://via.placeholder.com/1200x400/6366f1/ffffff?text=Kalakar+-+AI+Video+Captions)
+## Features
 
-## ✨ Features
+- **AI Transcription** - 95% accuracy using local Whisper with word-level timestamps
+- **50+ Templates** - MrBeast, Alex Hormozi, and custom creator styles
+- **15+ Languages** - Hindi, Tamil, Telugu, English, and more
+- **Real-time Processing** - Minutes, not hours
+- **Enterprise Security** - JWT auth, RLS, rate limiting, input validation
+- **Credit System** - Pay-per-use with subscription tiers
 
-- **🤖 AI Transcription** - 95% accuracy for Hindi, Tamil, Telugu, and 15+ languages using local Whisper
-- **🎨 Beautiful Templates** - MrBeast, Alex Hormozi, and 50+ creator styles
-- **⚡ Lightning Fast** - Process videos in minutes with local AI processing
-- **📱 Multiple Exports** - MP4 with burned captions, SRT files, or alpha channel
-- **🔒 Production Ready** - Supabase database, JWT auth, credit system, RLS security
-- **👥 User Management** - Registration, login, subscription tiers, usage analytics
-- **💳 Credit System** - Pay-per-use model with subscription tiers
-
-## 🏗️ Architecture
+## Tech Stack
 
 ```
-Frontend (Next.js)     Backend (Node.js)     Database (Supabase)
-     ↓                      ↓                      ↓
-┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-│ React UI    │ ←→   │ Express API │ ←→   │ PostgreSQL  │
-│ Video Player│      │ JWT Auth    │      │ RLS Enabled │
-│ Caption Editor│     │ File Upload │      │ Real-time   │
-│ Templates   │      │ Whisper AI  │      │ Backups     │
-└─────────────┘      └─────────────┘      └─────────────┘
+Frontend: Next.js 16, React 19, TypeScript, Tailwind CSS 4
+Backend: Node.js, Express, ES Modules, JWT Auth, Whisper AI
+Database: Supabase PostgreSQL with RLS
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+ 
+- Node.js 18+
 - Python 3.8+ with Whisper
 - FFmpeg
-- Supabase account (free tier available)
+- Supabase account
 
-### 1. Clone Repository
+### 1. Clone & Setup Backend
 
 ```bash
 git clone https://github.com/your-org/kalakar.git
-cd kalakar
-```
-
-### 2. Setup Supabase Database
-
-1. Create account at [supabase.com](https://supabase.com)
-2. Create new project
-3. Get your project URL and API keys
-4. Run database migrations (see below)
-
-### 3. Setup Backend
-
-```bash
-cd backend
+cd kalakar/backend
 npm install
-
-# Copy environment file
 cp .env.example .env
-
 # Edit .env with your Supabase credentials
-# SUPABASE_URL=https://your-project.supabase.co
-# SUPABASE_ANON_KEY=your-anon-key
-# SUPABASE_SERVICE_KEY=your-service-key
 ```
 
-### 4. Run Database Migrations
-
-```bash
-cd backend
-npm run migrate
-```
-
-### 5. Setup Frontend
+### 2. Setup Frontend
 
 ```bash
 cd frontend
 npm install
-
-# Copy environment file
 cp .env.local.example .env.local
-
-# Edit with your API URL
-# NEXT_PUBLIC_API_URL=http://localhost:5001
+# Edit with: NEXT_PUBLIC_API_URL=http://localhost:5001
 ```
 
-### 6. Install Whisper (Local AI)
+### 3. Install Whisper
 
 ```bash
-# Create Python virtual environment in your home directory
 cd ~
 python3 -m venv whisper-venv
 source whisper-venv/bin/activate
-
-# Install Whisper
 pip install openai-whisper
-
-# Test installation
-whisper --help
+whisper --help  # verify installation
 ```
 
-### 7. Start Development
+### 4. Run
 
 ```bash
 # Terminal 1: Backend
-cd backend
-npm run dev
+cd backend && npm run dev
 
-# Terminal 2: Frontend  
-cd frontend
-npm run dev
+# Terminal 2: Frontend
+cd frontend && npm run dev
 ```
 
-Visit `http://localhost:3000` to see the app!
+Visit `http://localhost:3000`
 
-## 📊 Database Schema
+---
 
-### Core Tables
+## Project Structure
 
-- **users**: User accounts, credits, subscriptions
-- **videos**: Video files and metadata  
-- **transcription_jobs**: AI transcription tasks with progress tracking
-- **captions**: Generated captions with precise timing
-- **words**: Word-level timestamps for fine control
-- **export_jobs**: Video export tasks and results
-- **projects**: User project organization
-- **usage_analytics**: Detailed usage tracking
+```
+kalamkar/
+├── backend/
+│   ├── src/
+│   │   ├── config/          # Environment configuration
+│   │   ├── database/        # Supabase setup & migrations
+│   │   ├── middleware/      # auth, errorHandler, rateLimiter
+│   │   ├── models/          # User, Video, TranscriptionJob
+│   │   ├── routes/          # auth, videos, transcription, export
+│   │   ├── services/        # transcription, upload, videoExport, s3
+│   │   └── utils/           # logger
+│   ├── scripts/             # run_whisper.sh
+│   └── uploads/             # local file storage
+│
+├── frontend/
+│   ├── src/
+│   │   ├── app/             # Next.js pages (editor, landing)
+│   │   ├── components/      # VideoPlayer, CaptionEditor, Timeline, etc.
+│   │   └── lib/             # API client
+│   └── public/
+```
 
-### Security Features
+---
 
-- ✅ Row Level Security (RLS) enabled on all tables
-- ✅ JWT authentication with refresh tokens
-- ✅ API rate limiting (global, per-user, per-endpoint)
-- ✅ Input validation with Joi schemas
-- ✅ SQL injection protection
-- ✅ Credit system with overdraft protection
+## API Reference
 
-## 🔧 Configuration
+**Base URL**: `http://localhost:5001`
 
-### Environment Variables
+All authenticated endpoints require: `Authorization: Bearer <token>`
 
-#### Backend (.env)
+### Auth
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/register` | Create account |
+| POST | `/api/auth/login` | Login |
+| POST | `/api/auth/refresh` | Refresh token |
+| GET | `/api/auth/me` | Get profile (auth) |
+| PUT | `/api/auth/profile` | Update profile (auth) |
+
+### Videos
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/videos/upload` | Upload video (auth) |
+| GET | `/api/videos` | List videos (auth) |
+| GET | `/api/videos/:id` | Get video (auth) |
+| DELETE | `/api/videos/:id` | Delete video (auth) |
+
+### Transcription
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/transcription/languages` | Supported languages |
+| POST | `/api/transcription/start` | Start async job (auth) |
+| GET | `/api/transcription/status/:jobId` | Job status (auth) |
+| POST | `/api/transcription/sync` | Sync transcription (auth) |
+| POST | `/api/transcription/export` | Export SRT/VTT |
+
+### Export
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/export/video` | Export with captions (auth) |
+| GET | `/api/export/status/:exportId` | Export status (auth) |
+| DELETE | `/api/export/:exportId` | Delete export (auth) |
+
+### Supported Languages
+
+| Code | Language | Code | Language |
+|------|----------|------|----------|
+| auto | Auto-detect | hi | Hindi |
+| ta | Tamil | te | Telugu |
+| kn | Kannada | ml | Malayalam |
+| mr | Marathi | gu | Gujarati |
+| pa | Punjabi | bn | Bengali |
+| en | English | es | Spanish |
+| fr | French | de | German |
+
+---
+
+## Configuration
+
+### Backend (.env)
+
 ```bash
-# Server
-NODE_ENV=production
+NODE_ENV=development
 PORT=5001
-FRONTEND_URL=https://your-domain.com
+FRONTEND_URL=http://localhost:3000
 
-# Supabase Database
+# Supabase
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_KEY=your-service-key
 
-# JWT Authentication
-JWT_SECRET=your-super-secret-key-change-in-production
+# JWT
+JWT_SECRET=your-secret-key
 JWT_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=7d
 
-# AI Configuration
+# Whisper
 USE_LOCAL_WHISPER=true
-WHISPER_MODEL=small
+WHISPER_MODEL=small  # tiny|base|small|medium|large
 
-# File Upload
+# Upload
 MAX_FILE_SIZE_MB=500
 UPLOAD_DIR=./uploads
 
@@ -169,291 +185,131 @@ UPLOAD_DIR=./uploads
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
 
-# Optional: AWS S3 for production storage
-AWS_ACCESS_KEY_ID=your-aws-key
-AWS_SECRET_ACCESS_KEY=your-aws-secret
+# AWS S3 (Production)
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
 AWS_S3_BUCKET=your-bucket
+AWS_REGION=ap-south-1
 ```
 
-#### Frontend (.env.local)
+### Frontend (.env.local)
+
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:5001
 NEXT_PUBLIC_APP_NAME=Kalakar
 ```
 
-## 🎨 Customization
+---
 
-### Adding New Caption Templates
+## Whisper Setup
 
-```javascript
-// frontend/src/app/editor/page.tsx
-const templates = [
-  {
-    name: 'Your Custom Style',
-    fontFamily: 'Inter',
-    fontSize: 28,
-    color: '#FF6B6B',
-    bold: true,
-    shadow: true
-  }
-];
-```
+### Model Sizes
 
-### Adding New Languages
+| Model | Size | Accuracy | Speed | VRAM |
+|-------|------|----------|-------|------|
+| tiny | 39M | Low | Fast | ~1GB |
+| base | 74M | Good | Fast | ~1GB |
+| small | 244M | Better | Medium | ~2GB |
+| medium | 769M | High | Slow | ~5GB |
+| large | 1550M | Highest | Slowest | ~10GB |
 
-```javascript
-// backend/src/services/transcriptionService.js
-const SUPPORTED_LANGUAGES = {
-  'hi': 'Hindi',
-  'ta': 'Tamil',
-  'te': 'Telugu',
-  'your_lang': 'Your Language'
-};
-```
+**Recommended**: `small` for best balance of accuracy and speed.
 
-### Subscription Tiers
-
-```javascript
-// backend/src/models/User.js
-const SUBSCRIPTION_TIERS = {
-  free: { credits: 600, maxFileSize: 100 },      // 10 minutes
-  creator: { credits: 18000, maxFileSize: 500 }, // 5 hours  
-  business: { credits: 72000, maxFileSize: 2000 } // 20 hours
-};
-```
-
-## 🚀 Production Deployment
-
-### 1. Database (Supabase)
-
-1. Create production project at [supabase.com](https://supabase.com)
-2. Run migrations: `npm run migrate`
-3. Enable RLS policies
-4. Set up database backups
-
-### 2. Backend Deployment
-
-**Option A: Railway**
-```bash
-# Connect to Railway
-railway login
-railway init
-railway add
-
-# Set environment variables in Railway dashboard
-# Deploy
-railway up
-```
-
-**Option B: Render**
-```bash
-# Create render.yaml
-# Set environment variables
-# Deploy via GitHub integration
-```
-
-### 3. Frontend Deployment
-
-**Vercel (Recommended)**
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy
-vercel --prod
-
-# Set environment variables in Vercel dashboard
-```
-
-**Netlify**
-```bash
-# Build
-npm run build
-
-# Deploy to Netlify
-# Set environment variables in Netlify dashboard
-```
-
-### 4. File Storage (Production)
-
-**AWS S3 Setup**
-```bash
-# Update backend .env
-AWS_ACCESS_KEY_ID=your-key
-AWS_SECRET_ACCESS_KEY=your-secret
-AWS_S3_BUCKET=your-bucket
-AWS_REGION=ap-south-1
-
-# Files will automatically use S3 in production
-```
-
-## 📈 Scaling & Performance
-
-### Infrastructure Optimizations
-
-- **CDN**: Cloudflare for global video delivery
-- **Caching**: Redis for session and job caching
-- **Queue**: Bull/Agenda for background transcription jobs
-- **Monitoring**: Sentry for error tracking
-- **Analytics**: PostHog for user behavior
-
-### Docker Deployment
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-services:
-  backend:
-    build: ./backend
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
-    ports:
-      - "5001:5001"
-  
-  frontend:
-    build: ./frontend
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:5001
-    ports:
-      - "3000:3000"
-  
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
-```
-
-## 🧪 Testing
+### Troubleshooting
 
 ```bash
-# Backend tests
-cd backend
-npm test
+# Check installation
+which whisper
+python3 -c "import whisper"
 
-# Frontend tests  
-cd frontend
-npm test
-
-# E2E tests
-npm run test:e2e
-
-# Load testing
-npm run test:load
+# Test endpoint
+curl http://localhost:5001/api/transcription/languages
 ```
-
-## 📝 API Documentation
-
-### Authentication
-```bash
-POST /api/auth/register    # Create account
-POST /api/auth/login       # Login
-POST /api/auth/refresh     # Refresh token
-GET  /api/auth/me          # Get profile
-PUT  /api/auth/profile     # Update profile
-```
-
-### Videos
-```bash
-POST /api/videos/upload    # Upload video
-GET  /api/videos           # List user videos
-GET  /api/videos/:id       # Get video details
-DELETE /api/videos/:id     # Delete video
-```
-
-### Transcription
-```bash
-GET  /api/transcription/languages        # Supported languages
-POST /api/transcription/start           # Start async job
-GET  /api/transcription/status/:jobId   # Job status
-POST /api/transcription/sync            # Sync transcription
-POST /api/transcription/export          # Export SRT/VTT
-```
-
-### Export
-```bash
-POST /api/export/video              # Export video with captions
-GET  /api/export/status/:exportId   # Export status
-DELETE /api/export/:exportId        # Delete export
-```
-
-## 💰 Business Model
-
-### Pricing Tiers
-
-```
-🆓 FREE TIER
-• 600 credits (10 minutes)
-• 2-minute max video length  
-• Watermark on exports
-• Basic templates
-
-💎 CREATOR TIER ($29/month)
-• 18,000 credits (5 hours)
-• No watermark
-• All templates
-• 4K export
-• Priority processing
-
-🚀 BUSINESS TIER ($99/month)  
-• 72,000 credits (20 hours)
-• Team collaboration
-• Custom branding
-• API access
-• Analytics dashboard
-```
-
-### Revenue Projections
-
-```
-Target: 1,000 paying users
-Creator Tier: 800 users × $29 = $23,200/month
-Business Tier: 200 users × $99 = $19,800/month
-Total Revenue: $43,000/month = $516,000/year
-
-Costs: ~$8,000/month (servers, AI, storage)
-Profit: ~$35,000/month = $420,000/year
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open Pull Request
-
-### Development Guidelines
-
-- Follow TypeScript best practices
-- Write tests for new features
-- Update documentation
-- Follow security guidelines
-- Use conventional commits
-
-## 📄 License
-
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file.
-
-## 🆘 Support & Community
-
-- 📧 **Email**: support@kalakar.ai
-- 💬 **Discord**: [Join our community](https://discord.gg/kalakar)
-- 📖 **Documentation**: [docs.kalakar.ai](https://docs.kalakar.ai)
-- 🐦 **Twitter**: [@kalakar_ai](https://twitter.com/kalakar_ai)
-- 📺 **YouTube**: [Kalakar Tutorials](https://youtube.com/@kalakar)
-
-## 🙏 Acknowledgments
-
-- **OpenAI Whisper** - Local speech recognition
-- **Supabase** - Database and authentication infrastructure  
-- **Next.js & React** - Frontend framework
-- **FFmpeg** - Video processing
-- **Tailwind CSS** - Styling system
-- **Indian Creator Community** - Inspiration and feedback
 
 ---
 
-**Made with ❤️ in India 🇮🇳 for Indian creators worldwide**
+## Database Schema
 
-*Empowering creators to reach global audiences with perfect captions*
+### Core Tables
+
+```sql
+users              -- User accounts and subscriptions
+videos             -- Video files and metadata
+transcription_jobs -- AI processing tasks
+captions           -- Generated captions with timing
+words              -- Word-level timestamps
+export_jobs        -- Video export tasks
+projects           -- User project organization
+usage_analytics    -- Detailed usage tracking
+```
+
+### Security
+
+- Row Level Security (RLS) on all tables
+- JWT authentication with refresh tokens
+- Rate limiting (global, per-user, per-endpoint)
+- Input validation with Joi
+- bcrypt password hashing
+
+---
+
+## Deployment
+
+### Backend (Railway)
+
+```bash
+npm install -g @railway/cli
+railway login
+railway init
+railway up
+# Set env vars in Railway dashboard
+```
+
+### Frontend (Vercel)
+
+```bash
+npm i -g vercel
+cd frontend
+vercel --prod
+# Set NEXT_PUBLIC_API_URL in Vercel dashboard
+```
+
+### Production Checklist
+
+- [ ] Supabase production project
+- [ ] AWS S3 bucket configured
+- [ ] SSL certificates
+- [ ] RLS policies tested
+- [ ] Rate limiting configured
+- [ ] Strong JWT secrets
+
+---
+
+## Subscription Tiers
+
+| Tier | Credits | Max File | Features |
+|------|---------|----------|----------|
+| free | 600 (10 min) | 100MB | Basic templates, watermark |
+| creator | 18,000 (5 hrs) | 500MB | All templates, no watermark |
+| business | 72,000 (20 hrs) | 2GB | Team, API, custom branding |
+
+---
+
+## Rate Limits
+
+| Endpoint | Limit | Window |
+|----------|-------|--------|
+| Global | 100 req | 15 min |
+| Auth | 5 req | 1 min |
+| Upload | 10 req | 1 hour |
+| Transcription | 5 req | 15 min |
+
+---
+
+## License
+
+MIT License
+
+---
+
+**Made in India for Indian creators worldwide**

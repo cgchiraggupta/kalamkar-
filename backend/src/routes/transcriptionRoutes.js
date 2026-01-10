@@ -10,24 +10,23 @@
 
 import { Router } from 'express';
 import path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { 
-    startTranscriptionJob, 
-    getTranscriptionStatus, 
+import { execSync } from 'child_process';
+import {
+    startTranscriptionJob,
+    getTranscriptionStatus,
     transcribeVideoSync,
-    getSupportedLanguages, 
-    generateSRT, 
-    generateVTT 
+    getSupportedLanguages,
+    generateSRT,
+    generateVTT,
+    transcribeWithSpeakers,
+    getSpeakerDiarizationMethods
 } from '../services/transcriptionService.js';
 import { transcriptionLimiter } from '../middleware/rateLimiter.js';
-import { authenticateToken, demoAuth, requireCredits } from '../middleware/auth.js';
+import { demoAuth } from '../middleware/auth.js';
 import { asyncHandler, Errors } from '../middleware/errorHandler.js';
 import { TranscriptionJob } from '../models/TranscriptionJob.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
-
-const execAsync = promisify(exec);
 
 const router = Router();
 
@@ -252,22 +251,82 @@ router.get(
 
 /**
  * DELETE /api/transcription/jobs/:jobId
- * Delete a transcription job from memory
+ * Delete a transcription job
  */
 router.delete(
     '/jobs/:jobId',
+    demoAuth,
     asyncHandler(async (req, res) => {
         const { jobId } = req.params;
 
-        if (!transcriptionJobs.has(jobId)) {
+        const job = await TranscriptionJob.findById(jobId, req.userId);
+        if (!job) {
             throw Errors.notFound('Transcription job');
         }
 
-        transcriptionJobs.delete(jobId);
+        await job.delete();
 
         res.json({
             success: true,
             message: 'Transcription job deleted',
+        });
+    })
+);
+
+/**
+ * POST /api/transcription/speakers
+ * Transcribe with multi-speaker detection
+ *
+ * Body: { videoId: string, language?: string, enableSpeakers?: boolean }
+ */
+router.post(
+    '/speakers',
+    transcriptionLimiter,
+    demoAuth,
+    asyncHandler(async (req, res) => {
+        const { videoId, language = 'auto', enableSpeakers = true } = req.body;
+
+        if (!videoId) {
+            throw Errors.badRequest('Video ID is required');
+        }
+
+        // Validate language code
+        const supportedLanguages = getSupportedLanguages();
+        if (language && !supportedLanguages[language]) {
+            throw Errors.badRequest(`Unsupported language: ${language}`);
+        }
+
+        logger.info('Starting multi-speaker transcription', {
+            videoId,
+            language,
+            enableSpeakers,
+            userId: req.userId
+        });
+
+        const result = await transcribeWithSpeakers(videoId, req.userId, language, enableSpeakers);
+
+        res.json({
+            success: true,
+            message: 'Multi-speaker transcription completed',
+            data: result,
+        });
+    })
+);
+
+/**
+ * GET /api/transcription/diarization/methods
+ * Get available speaker diarization methods
+ */
+router.get(
+    '/diarization/methods',
+    asyncHandler(async (req, res) => {
+        const methods = await getSpeakerDiarizationMethods();
+
+        res.json({
+            success: true,
+            data: {
+                methods,
+            },
         });
     })
 );

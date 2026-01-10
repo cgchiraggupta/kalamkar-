@@ -15,6 +15,7 @@ export class User {
     constructor(data) {
         this.id = data.id;
         this.email = data.email;
+        this.passwordHash = data.password_hash;
         this.fullName = data.full_name;
         this.avatarUrl = data.avatar_url;
         this.subscriptionTier = data.subscription_tier;

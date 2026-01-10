@@ -120,9 +120,20 @@ export async function exportVideoWithCaptions(videoId, captions, style = {}, opt
             throw new ApiError(400, 'Captions are required for export');
         }
 
-        // Find input video file
-        const inputVideoPath = path.join(config.upload.uploadDir, `${videoId}.mp4`);
-        if (!fs.existsSync(inputVideoPath)) {
+        // Find input video file (check multiple extensions)
+        const uploadDir = path.resolve(config.upload.uploadDir);
+        const extensions = ['.mp4', '.mov', '.webm', '.avi'];
+        let inputVideoPath = null;
+
+        for (const ext of extensions) {
+            const testPath = path.join(uploadDir, `${videoId}${ext}`);
+            if (fs.existsSync(testPath)) {
+                inputVideoPath = testPath;
+                break;
+            }
+        }
+
+        if (!inputVideoPath) {
             throw new ApiError(404, 'Video file not found');
         }
 
@@ -135,14 +146,14 @@ export async function exportVideoWithCaptions(videoId, captions, style = {}, opt
 
         // Generate unique export ID
         const exportId = uuidv4();
-        
+
         // Create temporary SRT file
-        tempSrtPath = path.join(config.upload.uploadDir, `temp_${exportId}.srt`);
+        tempSrtPath = path.join(uploadDir, `temp_${exportId}.srt`);
         const srtContent = generateSRTContent(captions);
         await fs.promises.writeFile(tempSrtPath, srtContent, 'utf8');
 
         // Output file path
-        outputPath = path.join(config.upload.uploadDir, `${videoId}_captioned_${exportId}.${format}`);
+        outputPath = path.join(uploadDir, `${videoId}_captioned_${exportId}.${format}`);
 
         // Build FFmpeg command
         const qualitySettings = {
@@ -152,34 +163,38 @@ export async function exportVideoWithCaptions(videoId, captions, style = {}, opt
         };
 
         // Caption styling for FFmpeg subtitles filter
-        const fontPath = '/System/Library/Fonts/Arial.ttf'; // Default system font
         const fontSize = style.fontSize || 24;
         const fontColor = style.color || '#FFFFFF';
         const shadowColor = style.shadow ? '#000000' : fontColor;
-        
-        // Position calculation (FFmpeg uses different coordinate system)
-        let yPosition = 'main_h-text_h-50'; // bottom
-        if (style.position === 'top') {
-            yPosition = '50';
-        } else if (style.position === 'center') {
-            yPosition = '(main_h-text_h)/2';
-        }
+
+        // Convert hex color to ASS format (BGR with &H prefix)
+        const hexToASS = (hex) => {
+            const clean = hex.replace('#', '');
+            const r = clean.substring(0, 2);
+            const g = clean.substring(2, 4);
+            const b = clean.substring(4, 6);
+            return `&H${b}${g}${r}&`;
+        };
+
+        // Escape the SRT path for FFmpeg (handle special characters)
+        const escapedSrtPath = tempSrtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "'\\''");
 
         // Build subtitle filter with custom styling
-        const subtitleFilter = [
-            `subtitles='${tempSrtPath.replace(/'/g, "\\'")}':`,
-            `force_style='FontName=${style.fontFamily || 'Arial'}`,
+        const forceStyle = [
+            `FontName=${style.fontFamily || 'Arial'}`,
             `FontSize=${fontSize}`,
-            `PrimaryColour=&H${fontColor.replace('#', '').split('').reverse().join('')}&`,
-            `OutlineColour=&H${shadowColor.replace('#', '').split('').reverse().join('')}&`,
+            `PrimaryColour=${hexToASS(fontColor)}`,
+            `OutlineColour=${hexToASS(shadowColor)}`,
             `BackColour=&H80000000&`,
             `Bold=${style.bold ? -1 : 0}`,
             `Italic=${style.italic ? -1 : 0}`,
             `Outline=${style.shadow ? 2 : 0}`,
             `Shadow=${style.shadow ? 1 : 0}`,
             `Alignment=2`,
-            `MarginV=${style.position === 'top' ? 50 : style.position === 'center' ? 0 : 50}'`
+            `MarginV=${style.position === 'top' ? 50 : style.position === 'center' ? 0 : 50}`
         ].join(',');
+
+        const subtitleFilter = `subtitles='${escapedSrtPath}':force_style='${forceStyle}'`;
 
         const ffmpegCommand = [
             'ffmpeg',
@@ -187,8 +202,10 @@ export async function exportVideoWithCaptions(videoId, captions, style = {}, opt
             '-vf', `"${subtitleFilter}"`,
             '-c:v', 'libx264',
             '-c:a', 'aac',
+            '-b:a', '192k',
             qualitySettings[quality],
-            '-y', // Overwrite output file
+            '-movflags', '+faststart',
+            '-y',
             `"${outputPath}"`
         ].join(' ');
 
@@ -277,10 +294,8 @@ export async function exportVideoWithCaptions(videoId, captions, style = {}, opt
  * @returns {Object} - Export status
  */
 export async function getExportStatus(exportId) {
-    // In a real implementation, this would check a database
-    // For now, we'll check if the file exists
     const pattern = new RegExp(`.*_captioned_${exportId}\\.(mp4|mov|webm)$`);
-    const uploadDir = config.upload.uploadDir;
+    const uploadDir = path.resolve(config.upload.uploadDir);
     
     try {
         const files = await fs.promises.readdir(uploadDir);
@@ -323,7 +338,7 @@ export async function getExportStatus(exportId) {
  */
 export async function deleteExport(exportId) {
     const pattern = new RegExp(`.*_captioned_${exportId}\\.(mp4|mov|webm)$`);
-    const uploadDir = config.upload.uploadDir;
+    const uploadDir = path.resolve(config.upload.uploadDir);
     
     try {
         const files = await fs.promises.readdir(uploadDir);

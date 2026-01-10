@@ -385,3 +385,437 @@ export async function getExportPreview(videoId: string, captions: Caption[], sty
 }
 
 export { API_BASE_URL };
+
+// =====================
+// AUDIO ENHANCEMENT API
+// =====================
+
+export interface AudioAnalysis {
+    meanVolume: number | null;
+    maxVolume: number | null;
+    quality: 'too_loud' | 'too_quiet' | 'slightly_quiet' | 'good' | 'unknown';
+    recommendations: string[];
+}
+
+export interface EnhancementPresets {
+    noiseReduction: string[];
+    normalize: string[];
+    voiceClarity: string[];
+}
+
+export interface AudioEnhanceOptions {
+    noiseReduction?: 'light' | 'medium' | 'heavy';
+    normalize?: boolean;
+    normalizePreset?: 'standard' | 'podcast' | 'broadcast';
+    voiceClarity?: 'light' | 'medium' | 'heavy';
+    applyNoise?: boolean;
+    applyClarity?: boolean;
+}
+
+export interface AudioEnhanceResult {
+    success: boolean;
+    enhanceId: string;
+    videoId: string;
+    filename: string;
+    url: string;
+    size: number;
+    sizeFormatted: string;
+    enhancements: {
+        noiseReduction: string;
+        normalize: string;
+        voiceClarity: string;
+    };
+}
+
+/**
+ * Get available audio enhancement presets
+ */
+export async function getAudioPresets() {
+    return apiRequest<{ presets: EnhancementPresets }>('/api/audio/presets');
+}
+
+/**
+ * Analyze audio levels in a video
+ */
+export async function analyzeAudio(videoId: string) {
+    return apiRequest<{ videoId: string; analysis: AudioAnalysis }>('/api/audio/analyze', {
+        method: 'POST',
+        body: JSON.stringify({ videoId }),
+    });
+}
+
+/**
+ * Enhance audio in a video
+ */
+export async function enhanceAudio(videoId: string, options: AudioEnhanceOptions = {}) {
+    return apiRequest<AudioEnhanceResult>('/api/audio/enhance', {
+        method: 'POST',
+        body: JSON.stringify({ videoId, options }),
+    });
+}
+
+/**
+ * Quick enhance audio with a preset
+ */
+export async function quickEnhanceAudio(videoId: string, preset: 'balanced' | 'podcast' | 'music' | 'clean' = 'balanced') {
+    return apiRequest<AudioEnhanceResult>('/api/audio/quick-enhance', {
+        method: 'POST',
+        body: JSON.stringify({ videoId, preset }),
+    });
+}
+
+// =====================
+// PAYMENT API
+// =====================
+
+export interface SubscriptionPlan {
+    id: string;
+    name: string;
+    description: string;
+    priceMonthly: number;
+    priceYearly: number;
+    credits: number;
+    features: string[];
+}
+
+export interface CreditPackage {
+    id: string;
+    name: string;
+    credits: number;
+    price: number;
+    description: string;
+    popular?: boolean;
+}
+
+export interface PaymentOrder {
+    orderId: string;
+    amount: number;
+    currency: string;
+    keyId: string;
+    planName?: string;
+    packageName?: string;
+    billingCycle?: string;
+    credits?: number;
+}
+
+export interface PlansResponse {
+    subscriptions: SubscriptionPlan[];
+    creditPackages: CreditPackage[];
+    currency: string;
+    razorpayKeyId: string;
+}
+
+/**
+ * Get all subscription plans and credit packages
+ */
+export async function getPlans() {
+    return apiRequest<PlansResponse>('/api/payments/plans');
+}
+
+/**
+ * Check if payment gateway is configured
+ */
+export async function getPaymentStatus() {
+    return apiRequest<{ configured: boolean; gateway: string }>('/api/payments/status');
+}
+
+/**
+ * Create order for subscription
+ */
+export async function createSubscriptionOrder(planId: string, billingCycle: 'monthly' | 'yearly' = 'monthly') {
+    return apiRequest<{ order: PaymentOrder }>('/api/payments/subscribe', {
+        method: 'POST',
+        body: JSON.stringify({ planId, billingCycle }),
+    });
+}
+
+/**
+ * Create order for credit package
+ */
+export async function createCreditOrder(packageId: string) {
+    return apiRequest<{ order: PaymentOrder }>('/api/payments/credits', {
+        method: 'POST',
+        body: JSON.stringify({ packageId }),
+    });
+}
+
+/**
+ * Verify payment after Razorpay checkout
+ */
+export async function verifyPayment(razorpay_order_id: string, razorpay_payment_id: string, razorpay_signature: string) {
+    return apiRequest<{ success: boolean; message: string }>('/api/payments/verify', {
+        method: 'POST',
+        body: JSON.stringify({ razorpay_order_id, razorpay_payment_id, razorpay_signature }),
+    });
+}
+
+/**
+ * Get payment history
+ */
+export async function getPaymentHistory(limit: number = 20) {
+    return apiRequest<{ payments: any[] }>(`/api/payments/history?limit=${limit}`);
+}
+
+/**
+ * Get current subscription status
+ */
+export async function getSubscriptionStatus() {
+    return apiRequest<{
+        currentPlan: string;
+        planDetails: SubscriptionPlan;
+        expiresAt: string | null;
+        isExpired: boolean;
+        creditsRemaining: number;
+    }>('/api/payments/subscription');
+}
+
+// =====================
+// PROJECTS API
+// =====================
+
+export interface Project {
+    id: string;
+    userId: string;
+    name: string;
+    description: string | null;
+    thumbnailUrl: string | null;
+    isPublic: boolean;
+    videoCount: number;
+    videos: ProjectVideo[];
+    createdAt: string;
+    updatedAt: string;
+    stats?: ProjectStats;
+}
+
+export interface ProjectVideo {
+    id: string;
+    original_name: string;
+    filename: string;
+    duration_seconds: number;
+    thumbnail_url: string | null;
+    status: string;
+    created_at: string;
+    addedAt: string;
+}
+
+export interface ProjectStats {
+    videoCount: number;
+    totalDurationSeconds: number;
+    totalDurationFormatted: string;
+    totalSize: number;
+    totalSizeFormatted: string;
+    lastUpdated: string;
+}
+
+/**
+ * Create a new project
+ */
+export async function createProject(name: string, description?: string, isPublic: boolean = false) {
+    return apiRequest<{ project: Project }>('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name, description, isPublic }),
+    });
+}
+
+/**
+ * Get all projects for current user
+ */
+export async function getProjects(options: { limit?: number; offset?: number; includeVideos?: boolean } = {}) {
+    const params = new URLSearchParams();
+    if (options.limit) params.append('limit', options.limit.toString());
+    if (options.offset) params.append('offset', options.offset.toString());
+    if (options.includeVideos) params.append('includeVideos', 'true');
+
+    const queryString = params.toString();
+    return apiRequest<{ projects: Project[]; pagination: { limit: number; offset: number; total: number } }>(
+        `/api/projects${queryString ? `?${queryString}` : ''}`
+    );
+}
+
+/**
+ * Get single project by ID
+ */
+export async function getProject(id: string) {
+    return apiRequest<{ project: Project; stats: ProjectStats }>(`/api/projects/${id}`);
+}
+
+/**
+ * Update project
+ */
+export async function updateProject(id: string, data: { name?: string; description?: string; isPublic?: boolean }) {
+    return apiRequest<{ project: Project }>(`/api/projects/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+    });
+}
+
+/**
+ * Delete project
+ */
+export async function deleteProject(id: string) {
+    return apiRequest(`/api/projects/${id}`, { method: 'DELETE' });
+}
+
+/**
+ * Add video to project
+ */
+export async function addVideoToProject(projectId: string, videoId: string) {
+    return apiRequest<{ projectId: string; videoId: string }>(`/api/projects/${projectId}/videos`, {
+        method: 'POST',
+        body: JSON.stringify({ videoId }),
+    });
+}
+
+/**
+ * Remove video from project
+ */
+export async function removeVideoFromProject(projectId: string, videoId: string) {
+    return apiRequest(`/api/projects/${projectId}/videos/${videoId}`, { method: 'DELETE' });
+}
+
+/**
+ * Get videos in a project
+ */
+export async function getProjectVideos(projectId: string) {
+    return apiRequest<{ videos: ProjectVideo[]; total: number }>(`/api/projects/${projectId}/videos`);
+}
+
+// =====================
+// ANALYTICS API
+// =====================
+
+export interface AnalyticsSummary {
+    creditsRemaining: number;
+    creditsUsed: number;
+    subscriptionTier: string;
+    memberSince: string;
+    videoCount: number;
+    transcriptionCount: number;
+    exportCount: number;
+    projectCount: number;
+    totalWords: number;
+}
+
+export interface UsageStats {
+    timeline: Array<{
+        date: string;
+        actions: number;
+        creditsUsed: number;
+        successRate: number;
+    }>;
+    topActions: Array<{ action: string; count: number }>;
+    summary: {
+        totalActions: number;
+        totalCredits: number;
+        averageCreditsPerDay: number;
+        successRate: number;
+    };
+}
+
+export interface TranscriptionAnalytics {
+    total: number;
+    completed: number;
+    failed: number;
+    successRate: number;
+    totalWords: number;
+    totalCreditsUsed: number;
+    avgProcessingTime: number;
+    avgAccuracy: number;
+    languages: Array<{ code: string; count: number; words: number; credits: number }>;
+}
+
+export interface ExportAnalytics {
+    total: number;
+    completed: number;
+    failed: number;
+    totalSize: number;
+    types: Array<{ type: string; count: number; totalSize: number }>;
+    qualityBreakdown: Record<string, number>;
+}
+
+export interface DashboardData {
+    summary: AnalyticsSummary;
+    stats: UsageStats;
+    transcriptions: TranscriptionAnalytics;
+    exports: ExportAnalytics;
+    period: {
+        days: number;
+        startDate: string;
+        endDate: string;
+    };
+}
+
+/**
+ * Get user analytics summary
+ */
+export async function getAnalyticsSummary() {
+    return apiRequest<AnalyticsSummary>('/api/analytics/summary');
+}
+
+/**
+ * Get usage statistics over time
+ */
+export async function getUsageStats(period: 'hour' | 'day' | 'week' | 'month' = 'day', days: number = 30) {
+    return apiRequest<UsageStats>(`/api/analytics/stats?period=${period}&days=${days}`);
+}
+
+/**
+ * Get transcription analytics
+ */
+export async function getTranscriptionAnalytics(days: number = 30) {
+    return apiRequest<TranscriptionAnalytics>(`/api/analytics/transcriptions?days=${days}`);
+}
+
+/**
+ * Get export analytics
+ */
+export async function getExportAnalytics(days: number = 30) {
+    return apiRequest<ExportAnalytics>(`/api/analytics/exports?days=${days}`);
+}
+
+/**
+ * Get full dashboard data in one call
+ */
+export async function getDashboardData(days: number = 30) {
+    return apiRequest<DashboardData>(`/api/analytics/dashboard?days=${days}`);
+}
+
+// =====================
+// MULTI-SPEAKER TRANSCRIPTION API
+// =====================
+
+export interface Speaker {
+    id: number;
+    name: string;
+    totalDuration: number;
+}
+
+export interface DiarizationMethod {
+    id: string;
+    name: string;
+    description: string;
+    available: boolean;
+}
+
+export interface MultiSpeakerTranscriptionResult extends TranscriptionResult {
+    speakerCount: number;
+    speakers: Speaker[];
+    diarizationMethod: string;
+}
+
+/**
+ * Transcribe video with multi-speaker detection
+ */
+export async function transcribeWithSpeakers(videoId: string, language: string = 'auto', enableSpeakers: boolean = true) {
+    return apiRequest<MultiSpeakerTranscriptionResult>('/api/transcription/speakers', {
+        method: 'POST',
+        body: JSON.stringify({ videoId, language, enableSpeakers }),
+    });
+}
+
+/**
+ * Get available speaker diarization methods
+ */
+export async function getDiarizationMethods() {
+    return apiRequest<{ methods: DiarizationMethod[] }>('/api/transcription/diarization/methods');
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, DragEvent } from 'react';
+import { API_BASE_URL } from '../lib/api';
 
 interface VideoUploaderProps {
     onUploadComplete: (videoUrl: string, videoId: string) => void;
@@ -70,7 +71,7 @@ export default function VideoUploader({ onUploadComplete, onError }: VideoUpload
                 if (xhr.status >= 200 && xhr.status < 300) {
                     const response = JSON.parse(xhr.responseText);
                     if (response.success) {
-                        const videoUrl = `http://localhost:5001${response.data.video.url}`;
+                        const videoUrl = `${API_BASE_URL}${response.data.video.url}`;
                         onUploadComplete(videoUrl, response.data.video.id);
                     } else {
                         throw new Error(response.message || 'Upload failed');
@@ -87,7 +88,7 @@ export default function VideoUploader({ onUploadComplete, onError }: VideoUpload
                 setIsUploading(false);
             });
 
-            xhr.open('POST', 'http://localhost:5001/api/videos/upload');
+            xhr.open('POST', `${API_BASE_URL}/api/videos/upload`);
             xhr.send(formData);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Upload failed';

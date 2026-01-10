@@ -96,6 +96,20 @@ const config = {
     s3Bucket: process.env.AWS_S3_BUCKET,
   },
 
+  // Razorpay Payment Gateway
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID,
+    keySecret: process.env.RAZORPAY_KEY_SECRET,
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
+  },
+
+  // Email (Resend)
+  email: {
+    resendApiKey: process.env.RESEND_API_KEY,
+    fromEmail: process.env.EMAIL_FROM || 'noreply@kalakar.app',
+    fromName: process.env.EMAIL_FROM_NAME || 'Kalakar',
+  },
+
   // Database
   databaseUrl: process.env.DATABASE_URL,
 };

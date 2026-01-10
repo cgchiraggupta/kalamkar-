@@ -11,7 +11,7 @@
 import { Router } from 'express';
 import { videoUpload, getFileInfo, deleteFile } from '../services/uploadService.js';
 import { uploadLimiter } from '../middleware/rateLimiter.js';
-import { authenticateToken, demoAuth } from '../middleware/auth.js';
+import { demoAuth } from '../middleware/auth.js';
 import { asyncHandler, Errors } from '../middleware/errorHandler.js';
 import { Video } from '../models/Video.js';
 import logger from '../utils/logger.js';
@@ -32,7 +32,7 @@ router.post(
             throw Errors.badRequest('No video file provided');
         }
 
-        const fileInfo = getFileInfo(req.file);
+        const fileInfo = await getFileInfo(req.file);
 
         // Create video record in database
         const video = await Video.create({
@@ -145,7 +145,7 @@ router.delete(
         }
 
         // Delete physical file
-        const deleted = await deleteFile(video.filename);
+        const deleted = await deleteFile({ filename: video.filename });
         if (!deleted) {
             logger.warn('Physical file not found during deletion', { videoId: id, filename: video.filename });
         }

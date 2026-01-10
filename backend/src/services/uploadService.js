@@ -5,6 +5,7 @@
  * - File type validation
  * - Size limits
  * - Secure file naming
+ * - S3 integration for production
  */
 
 import multer from 'multer';
@@ -14,6 +15,13 @@ import fs from 'fs';
 import config from '../config/index.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import logger from '../utils/logger.js';
+import { 
+    isS3Available, 
+    uploadToS3, 
+    deleteFromS3, 
+    generateS3Key,
+    generatePresignedDownloadUrl 
+} from './s3Service.js';
 
 // Ensure upload directory exists
 const uploadDir = path.resolve(config.upload.uploadDir);
@@ -76,34 +84,106 @@ export const videoUpload = multer({
 });
 
 /**
- * Get file info for uploaded video
+ * Get file info for uploaded video with S3 integration
  */
-export function getFileInfo(file) {
-    return {
-        id: path.basename(file.filename, path.extname(file.filename)),
+export async function getFileInfo(file, userId = null) {
+    const fileId = path.basename(file.filename, path.extname(file.filename));
+    const baseInfo = {
+        id: fileId,
         filename: file.filename,
         originalName: file.originalname,
         mimeType: file.mimetype,
         size: file.size,
         sizeFormatted: formatBytes(file.size),
         path: file.path,
+        storageProvider: 'local',
         url: `/uploads/${file.filename}`,
     };
+
+    // If S3 is available and we have a userId, upload to S3
+    if (isS3Available() && userId && config.isProd) {
+        try {
+            const s3Key = generateS3Key(userId, 'videos', file.originalname);
+            
+            logger.info('Uploading file to S3', { 
+                filename: file.filename, 
+                s3Key,
+                userId 
+            });
+
+            const s3Result = await uploadToS3(file.path, s3Key, file.mimetype);
+
+            // Delete local file after successful S3 upload
+            await fs.promises.unlink(file.path);
+            
+            logger.info('File uploaded to S3 and local file cleaned up', { 
+                s3Key, 
+                s3Url: s3Result.url 
+            });
+
+            return {
+                ...baseInfo,
+                storageProvider: 's3',
+                s3Key: s3Result.key,
+                url: s3Result.url,
+                path: null, // No local path for S3 files
+            };
+
+        } catch (error) {
+            logger.error('S3 upload failed, keeping local file', { 
+                error: error.message,
+                filename: file.filename 
+            });
+            // Fall back to local storage if S3 fails
+        }
+    }
+
+    return baseInfo;
 }
 
 /**
- * Delete uploaded file
+ * Delete uploaded file (local or S3)
  */
-export async function deleteFile(filename) {
-    const filePath = path.join(uploadDir, filename);
-
-    if (fs.existsSync(filePath)) {
-        await fs.promises.unlink(filePath);
-        logger.info(`Deleted file: ${filename}`);
+export async function deleteFile(fileInfo) {
+    try {
+        if (fileInfo.storageProvider === 's3' && fileInfo.s3Key) {
+            await deleteFromS3(fileInfo.s3Key);
+            logger.info(`Deleted S3 file: ${fileInfo.s3Key}`);
+        } else if (fileInfo.filename) {
+            const filePath = path.join(uploadDir, fileInfo.filename);
+            if (fs.existsSync(filePath)) {
+                await fs.promises.unlink(filePath);
+                logger.info(`Deleted local file: ${fileInfo.filename}`);
+            }
+        }
         return true;
+    } catch (error) {
+        logger.error('Failed to delete file', { 
+            error: error.message, 
+            fileInfo 
+        });
+        return false;
     }
+}
 
-    return false;
+/**
+ * Get file URL (with presigned URL for S3)
+ */
+export async function getFileUrl(fileInfo, expiresIn = 3600) {
+    if (fileInfo.storageProvider === 's3' && fileInfo.s3Key) {
+        try {
+            return await generatePresignedDownloadUrl(fileInfo.s3Key, expiresIn);
+        } catch (error) {
+            logger.error('Failed to generate presigned URL', { 
+                error: error.message, 
+                s3Key: fileInfo.s3Key 
+            });
+            throw new ApiError(500, 'Failed to generate file URL');
+        }
+    }
+    
+    // Return local URL
+    return fileInfo.url;
 }
 
 /**

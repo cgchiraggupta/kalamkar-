@@ -27,12 +27,6 @@ export default function Header() {
                     <Link href="/editor" className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-sm font-medium">
                         Editor
                     </Link>
-                    <Link href="/templates" className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-sm font-medium">
-                        Templates
-                    </Link>
-                    <Link href="/pricing" className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-sm font-medium">
-                        Pricing
-                    </Link>
                 </nav>
 
                 {/* CTA Buttons */}
@@ -71,12 +65,6 @@ export default function Header() {
                         </Link>
                         <Link href="/editor" className="px-4 py-3 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] rounded-lg transition-colors">
                             Editor
-                        </Link>
-                        <Link href="/templates" className="px-4 py-3 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] rounded-lg transition-colors">
-                            Templates
-                        </Link>
-                        <Link href="/pricing" className="px-4 py-3 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] rounded-lg transition-colors">
-                            Pricing
                         </Link>
                         <div className="pt-4 flex flex-col gap-2 border-t border-[var(--border-primary)] mt-2">
                             <button className="btn btn-secondary w-full">Log In</button>

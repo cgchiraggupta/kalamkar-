@@ -24,7 +24,7 @@ export default function VideoPlayer({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showControls, setShowControls] = useState(true);
     const containerRef = useRef<HTMLDivElement>(null);
-    const controlsTimeoutRef = useRef<NodeJS.Timeout>();
+    const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const togglePlay = () => {
         if (videoRef.current) {
